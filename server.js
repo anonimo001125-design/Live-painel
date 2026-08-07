@@ -1,5 +1,4 @@
 const express = require('express');
-const puppeteer = require('puppeteer');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -15,75 +14,47 @@ if (!fs.existsSync(STREAM_DIR)){
 app.use('/stream', express.static(STREAM_DIR));
 
 app.get('/', (req, res) => {
-    res.send('Servidor ativo.');
+    res.send('Servidor de Restream Direto Ativo! Seu link HLS está em /stream/live.m3u8');
 });
 
-async function iniciarTransmissao() {
-    console.log("Iniciando Chromium com emulação de software...");
-    
-    let browser;
-    try {
-        browser = await puppeteer.launch({
-            headless: "new",
-            executablePath: '/usr/bin/chromium',
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--display=:99.0',
-                '--autoplay-policy=no-user-gesture-required',
-                
-                // --- FLAGS CRÍTICAS PARA ACABAR COM A TELA PRETA ---
-                '--disable-gpu',                     // Desativa uso da GPU física
-                '--disable-software-rasterizer',    // Força uso do processador
-                '--disable-gpu-sandbox',            // Ignora isolamento de hardware
-                '--audio-buffer-size=4096'          // Melhora estabilidade do buffer de som
-            ]
-        });
+function iniciarTransmissao() {
+    // RECOMENDAÇÃO CRÍTICA: Substitua pelo link real da página ou da live que quer retransmitir
+    const urlAlvo = 'https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch'; 
 
-        const page = await browser.newPage();
-        
-        // MUDANÇA OBRIGATÓRIA: Insira a URL do seu vídeo abaixo
-        const urlAlvo = 'https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch'; 
-        
-        console.log(`Carregando: ${urlAlvo}`);
-        await page.goto(urlAlvo, { waitUntil: 'networkidle2', timeout: 60000 });
-        await page.setViewport({ width: 1280, height: 720 });
+    console.log(`Extraindo fluxo direto de vídeo de: ${urlAlvo}...`);
 
-        // Aguarda carregamento total dos players internos do site
-        await new Promise(resolve => setTimeout(resolve, 8000));
+    // Executa o yt-dlp para obter a URL direta da mídia (ignora a interface do site)
+    const ytdlp = spawn('yt-dlp', ['-g', '-f', 'best', urlAlvo]);
 
-        // Força a ativação de áudio e play de todas as tags de vídeo na página
-        await page.evaluate(() => {
-            const videoElements = document.querySelectorAll('video');
-            videoElements.forEach(video => {
-                video.muted = false;
-                video.volume = 1.0;
-                // Executa um trigger interno de reprodução
-                video.play().catch(e => console.log("Play pendente:", e));
-            });
-        });
+    let urlDiretaMidia = '';
 
-        console.log("Iniciando FFmpeg via PulseAudio (Som) e X11 (Imagem)...");
+    ytdlp.stdout.on('data', (data) => {
+        urlDiretaMidia += data.toString().trim();
+    });
 
+    ytdlp.on('close', (code) => {
+        if (code !== 0 || !urlDiretaMidia) {
+            console.error("Não foi possível extrair o fluxo do site. Tentando novamente em 10 segundos...");
+            setTimeout(iniciarTransmissao, 10000);
+            return;
+        }
+
+        console.log("Fluxo de mídia encontrado com sucesso!");
+        console.log("Iniciando FFmpeg direto na fonte (Consumo de RAM mínimo)...");
+
+        // O FFmpeg agora lê direto o arquivo de rede do vídeo, copiando o codec sem processar tela gráfica
         const ffmpegArgs = [
-            '-f', 'x11grab',
-            '-video_size', '1280x720',
-            '-i', ':99.0',                // Captura a tela virtual
-            
-            '-f', 'pulse',
-            '-i', 'default',              // Captura o áudio processado pelo PulseAudio virtual
-            
-            '-c:v', 'libx264',
-            '-preset', 'ultrafast',       // Economiza uso de CPU na Render Free
-            '-b:v', '650k',
-            '-maxrate', '850k',
-            '-bufsize', '1300k',
+            '-re',                           // Lê a entrada em tempo real
+            '-i', urlDiretaMidia,            // URL direta do vídeo extraído do site
+            '-c:v', 'libx264',               // Garante compatibilidade universal do codec de vídeo
+            '-preset', 'ultrafast',
+            '-b:v', '600k',                  // Bitrate super leve e estável para a Render Free
+            '-maxrate', '800k',
+            '-bufsize', '1200k',
             '-pix_fmt', 'yuv420p',
             '-g', '50',
-            '-c:a', 'aac',
-            '-b:a', '128k',
-            '-ac', '2',                   // Força saída em Stereo
+            '-c:a', 'aac',                   // Garante codec de áudio correto
+            '-b:a', '96k',
             '-f', 'hls',
             '-hls_time', '4',
             '-hls_list_size', '3',
@@ -96,25 +67,18 @@ async function iniciarTransmissao() {
         ffmpegProcess.stderr.on('data', (data) => {
             const log = data.toString();
             if (log.includes('frame=')) {
-                // Monitora se o vídeo está de fato gerando FPS e bitrate
-                console.log(`[Streaming Ativo]: ${log.trim().substring(0, 65)}`);
+                console.log(`[Streaming OK] Transmitindo frames reais: ${log.trim().substring(0, 50)}`);
             }
         });
 
-        ffmpegProcess.on('close', async (code) => {
-            console.log(`FFmpeg parou (Código: ${code}). Reiniciando...`);
-            try { await browser.close(); } catch(e) {}
+        ffmpegProcess.on('close', (ffmpegCode) => {
+            console.log(`FFmpeg encerrado (Código: ${ffmpegCode}). Reiniciando processo de extração...`);
             setTimeout(iniciarTransmissao, 5000);
         });
-
-    } catch (error) {
-        console.error("Erro no Restream:", error);
-        if (browser) { try { await browser.close(); } catch(e) {} }
-        setTimeout(iniciarTransmissao, 10000);
-    }
+    });
 }
 
 app.listen(PORT, () => {
-    console.log(`Servidor rodando na porta ${PORT}`);
+    console.log(`Servidor HTTP iniciado na porta ${PORT}`);
     iniciarTransmissao();
 });
