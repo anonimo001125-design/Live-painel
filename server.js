@@ -14,58 +14,85 @@ if (!fs.existsSync(STREAM_DIR)){
 
 app.use('/stream', express.static(STREAM_DIR));
 
-// Rota raiz para testar no navegador se o servidor está online
 app.get('/', (req, res) => {
-    res.send('Servidor de Restream está Online! O link HLS fica em /stream/live.m3u8');
+    res.send('Servidor de Restream ativo! Link em: /stream/live.m3u8');
 });
 
 async function iniciarTransmissao() {
-    console.log("Iniciando Chromium nativo no ambiente virtual...");
+    console.log("Iniciando Chromium no display virtual...");
     
     let browser;
     try {
         browser = await puppeteer.launch({
             headless: "new",
-            executablePath: '/usr/bin/chromium', // Caminho correto do Chromium no Debian/Ubuntu
+            executablePath: '/usr/bin/chromium',
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage', // Corrige falhas de falta de memória RAM no Docker
+                '--disable-dev-shm-usage',
                 '--disable-gpu',
-                '--display=:99.0',         // Conecta diretamente na tela virtual Xvfb
-                '--autoplay-policy=no-user-gesture-required' // Força o vídeo do site a dar Play sozinho
+                '--display=:99.0', // Conecta na tela virtual Xvfb
+                '--autoplay-policy=no-user-gesture-required' // Tenta forçar o autoplay do som
             ]
         });
 
         const page = await browser.newPage();
         
-        // MUDANÇA OBRIGATÓRIA: Altere para o site que você quer capturar
+        // OBRIGATÓRIO: Coloque a URL do site de vídeo aqui
         const urlAlvo = 'https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch'; 
         
-        console.log(`Navegando até a página de transmissão: ${urlAlvo}`);
-        await page.goto(urlAlvo, { waitUntil: 'domcontentloaded', timeout: 60000 }); // Troca para carregar mais rápido
+        console.log(`Carregando a página: ${urlAlvo}`);
+        // Aguarda a página carregar completamente os elementos visuais
+        await page.goto(urlAlvo, { waitUntil: 'networkidle2', timeout: 60000 });
+        
+        // Define a resolução da janela do navegador
         await page.setViewport({ width: 1280, height: 720 });
 
-        console.log("Iniciando codificação de vídeo e áudio com FFmpeg...");
+        // --- SOLUÇÃO PARA TELA PRETA (AUTOPLAY / CLIQUE) ---
+        console.log("Aguardando 5 segundos para estabilização da página...");
+        await new Promise(resolve => setTimeout(resolve, 5000));
 
-        // Argumentos do FFmpeg otimizados para não travarem por falta de hardware físico
+        // Se o site tiver um botão de "Play", descomente as linhas abaixo e coloque a classe/ID dele:
+        // try {
+        //     await page.click('.botao-play-do-site'); // Altere para o seletor real do botão
+        //     console.log("Botão de Play clicado via automação!");
+        // } catch(e) {
+        //     console.log("Não foi necessário clicar em botão de play externo.");
+        // }
+
+        // Garante que o volume da página esteja no máximo via execução de script na página
+        await page.evaluate(() => {
+            const videos = document.querySelectorAll('video');
+            videos.forEach(v => {
+                v.muted = false;
+                v.volume = 1.0;
+                v.play().catch(err => console.log("Erro ao dar play automático no elemento:", err));
+            });
+        });
+
+        console.log("Iniciando FFmpeg para capturar a imagem e o som...");
+
+        // --- SOLUÇÃO PARA CAPTURA DE ÁUDIO E VÍDEO REAL ---
         const ffmpegArgs = [
             '-f', 'x11grab',
             '-video_size', '1280x720',
-            '-i', ':99.0',               // Captura a tela virtual gerada pelo Xvfb
-            '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100', // Gera áudio silencioso virtual caso o site não envie áudio
+            '-i', ':99.0', // Captura a imagem da tela virtual do Chromium
+            
+            // Procura o áudio interno gerado pelo Chromium (gerado através do ALSA virtual no Docker)
+            '-f', 'alsa', '-i', 'default', 
+            
             '-c:v', 'libx264',
-            '-preset', 'ultrafast',       // Minimiza o uso de CPU para planos gratuitos
-            '-b:v', '600k',              // Bitrate reduzido para evitar gargalos na Render
-            '-maxrate', '800k',
-            '-bufsize', '1200k',
+            '-preset', 'ultrafast',
+            '-b:v', '700k', // Bitrate equilibrado para a Render Free
+            '-maxrate', '900k',
+            '-bufsize', '1400k',
             '-pix_fmt', 'yuv420p',
             '-g', '50',
-            '-c:a', 'aac',
-            '-shortest',                  // Sincroniza término dos canais de mídia
+            '-c:a', 'aac', // Codifica o áudio capturado em formato AAC
+            '-b:a', '128k',
             '-f', 'hls',
             '-hls_time', '4',
-            '-hls_list_size', '3',        // Reduzido para economizar espaço em disco
+            '-hls_list_size', '3',
             '-hls_flags', 'delete_segments',
             path.join(STREAM_DIR, 'live.m3u8')
         ];
@@ -73,24 +100,27 @@ async function iniciarTransmissao() {
         const ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
 
         ffmpegProcess.stderr.on('data', (data) => {
-            // Mostra os logs do FFmpeg no console da Render para sabermos se ele está capturando frames
-            console.log(`[FFmpeg]: ${data.toString().trim()}`);
+            const log = data.toString();
+            // Filtragem simples para monitorar se frames estão sendo processados
+            if (log.includes('frame=')) {
+                console.log(`[FFmpeg Status]: ${log.trim().substring(0, 60)}`);
+            }
         });
 
         ffmpegProcess.on('close', async (code) => {
-            console.log(`FFmpeg parou (Código: ${code}). Reiniciando processo...`);
+            console.log(`FFmpeg fechado (Código: ${code}). Reiniciando restream...`);
             try { await browser.close(); } catch(e) {}
             setTimeout(iniciarTransmissao, 5000);
         });
 
     } catch (error) {
-        console.error("Erro no fluxo do Restream:", error);
+        console.error("Falha no Restream:", error);
         if (browser) { try { await browser.close(); } catch(e) {} }
         setTimeout(iniciarTransmissao, 10000);
     }
 }
 
 app.listen(PORT, () => {
-    console.log(`Servidor HTTP iniciado na porta ${PORT}`);
+    console.log(`Servidor rodando na porta ${PORT}`);
     iniciarTransmissao();
 });
