@@ -1,22 +1,16 @@
-FROM ghcr.io/puppeteer/puppeteer:21.5.0
+FROM node:18-slim
 
-USER root
-
-# Instala o FFmpeg junto com os drivers de áudio virtuais (pulseaudio)
+# Instala o FFmpeg, Google Chrome e um servidor de tela virtual (Xvfb)
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     xvfb \
-    pulseaudio \
+    chromium \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-
-COPY package.json .
+COPY package*.json ./
 RUN npm install
-
 COPY . .
 
-EXPOSE 3000
-
-# Cria o servidor de som de fundo antes de abrir a imagem
-CMD pulseaudio --start --exit-idle-time=-1 && Xvfb :99 -screen 0 1280x720x16 & node server.js
+# Inicia a tela virtual e roda o seu script
+CMD xvfb-run --server-args="-screen 0 1280x720x24" node index.js
