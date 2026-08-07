@@ -15,11 +15,11 @@ if (!fs.existsSync(STREAM_DIR)){
 app.use('/stream', express.static(STREAM_DIR));
 
 app.get('/', (req, res) => {
-    res.send('Servidor de Restream ativo! Link em: /stream/live.m3u8');
+    res.send('Servidor ativo.');
 });
 
 async function iniciarTransmissao() {
-    console.log("Iniciando Chromium no display virtual...");
+    console.log("Iniciando Chromium com emulação de software...");
     
     let browser;
     try {
@@ -30,66 +30,60 @@ async function iniciarTransmissao() {
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
-                '--disable-gpu',
-                '--display=:99.0', // Conecta na tela virtual Xvfb
-                '--autoplay-policy=no-user-gesture-required' // Tenta forçar o autoplay do som
+                '--display=:99.0',
+                '--autoplay-policy=no-user-gesture-required',
+                
+                // --- FLAGS CRÍTICAS PARA ACABAR COM A TELA PRETA ---
+                '--disable-gpu',                     // Desativa uso da GPU física
+                '--disable-software-rasterizer',    // Força uso do processador
+                '--disable-gpu-sandbox',            // Ignora isolamento de hardware
+                '--audio-buffer-size=4096'          // Melhora estabilidade do buffer de som
             ]
         });
 
         const page = await browser.newPage();
         
-        // OBRIGATÓRIO: Coloque a URL do site de vídeo aqui
+        // MUDANÇA OBRIGATÓRIA: Insira a URL do seu vídeo abaixo
         const urlAlvo = 'https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch'; 
         
-        console.log(`Carregando a página: ${urlAlvo}`);
-        // Aguarda a página carregar completamente os elementos visuais
+        console.log(`Carregando: ${urlAlvo}`);
         await page.goto(urlAlvo, { waitUntil: 'networkidle2', timeout: 60000 });
-        
-        // Define a resolução da janela do navegador
         await page.setViewport({ width: 1280, height: 720 });
 
-        // --- SOLUÇÃO PARA TELA PRETA (AUTOPLAY / CLIQUE) ---
-        console.log("Aguardando 5 segundos para estabilização da página...");
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        // Aguarda carregamento total dos players internos do site
+        await new Promise(resolve => setTimeout(resolve, 8000));
 
-        // Se o site tiver um botão de "Play", descomente as linhas abaixo e coloque a classe/ID dele:
-        // try {
-        //     await page.click('.botao-play-do-site'); // Altere para o seletor real do botão
-        //     console.log("Botão de Play clicado via automação!");
-        // } catch(e) {
-        //     console.log("Não foi necessário clicar em botão de play externo.");
-        // }
-
-        // Garante que o volume da página esteja no máximo via execução de script na página
+        // Força a ativação de áudio e play de todas as tags de vídeo na página
         await page.evaluate(() => {
-            const videos = document.querySelectorAll('video');
-            videos.forEach(v => {
-                v.muted = false;
-                v.volume = 1.0;
-                v.play().catch(err => console.log("Erro ao dar play automático no elemento:", err));
+            const videoElements = document.querySelectorAll('video');
+            videoElements.forEach(video => {
+                video.muted = false;
+                video.volume = 1.0;
+                // Executa um trigger interno de reprodução
+                video.play().catch(e => console.log("Play pendente:", e));
             });
         });
 
-        console.log("Iniciando FFmpeg para capturar a imagem e o som...");
+        console.log("Iniciando FFmpeg via PulseAudio (Som) e X11 (Imagem)...");
 
-        // --- SOLUÇÃO PARA CAPTURA DE ÁUDIO E VÍDEO REAL ---
         const ffmpegArgs = [
             '-f', 'x11grab',
             '-video_size', '1280x720',
-            '-i', ':99.0', // Captura a imagem da tela virtual do Chromium
+            '-i', ':99.0',                // Captura a tela virtual
             
-            // Procura o áudio interno gerado pelo Chromium (gerado através do ALSA virtual no Docker)
-            '-f', 'alsa', '-i', 'default', 
+            '-f', 'pulse',
+            '-i', 'default',              // Captura o áudio processado pelo PulseAudio virtual
             
             '-c:v', 'libx264',
-            '-preset', 'ultrafast',
-            '-b:v', '700k', // Bitrate equilibrado para a Render Free
-            '-maxrate', '900k',
-            '-bufsize', '1400k',
+            '-preset', 'ultrafast',       // Economiza uso de CPU na Render Free
+            '-b:v', '650k',
+            '-maxrate', '850k',
+            '-bufsize', '1300k',
             '-pix_fmt', 'yuv420p',
             '-g', '50',
-            '-c:a', 'aac', // Codifica o áudio capturado em formato AAC
+            '-c:a', 'aac',
             '-b:a', '128k',
+            '-ac', '2',                   // Força saída em Stereo
             '-f', 'hls',
             '-hls_time', '4',
             '-hls_list_size', '3',
@@ -101,20 +95,20 @@ async function iniciarTransmissao() {
 
         ffmpegProcess.stderr.on('data', (data) => {
             const log = data.toString();
-            // Filtragem simples para monitorar se frames estão sendo processados
             if (log.includes('frame=')) {
-                console.log(`[FFmpeg Status]: ${log.trim().substring(0, 60)}`);
+                // Monitora se o vídeo está de fato gerando FPS e bitrate
+                console.log(`[Streaming Ativo]: ${log.trim().substring(0, 65)}`);
             }
         });
 
         ffmpegProcess.on('close', async (code) => {
-            console.log(`FFmpeg fechado (Código: ${code}). Reiniciando restream...`);
+            console.log(`FFmpeg parou (Código: ${code}). Reiniciando...`);
             try { await browser.close(); } catch(e) {}
             setTimeout(iniciarTransmissao, 5000);
         });
 
     } catch (error) {
-        console.error("Falha no Restream:", error);
+        console.error("Erro no Restream:", error);
         if (browser) { try { await browser.close(); } catch(e) {} }
         setTimeout(iniciarTransmissao, 10000);
     }
