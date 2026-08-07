@@ -1,6 +1,7 @@
 FROM python:3.9-slim
 
-# 1. Instala todas as dependências do sistema como root
+# 1. Instala todas as dependências do sistema necessárias para vídeo, áudio e compiladores básicos
+# Nota: O psutil às vezes precisa de ferramentas de build (gcc, python3-dev) para ser compilado no Linux.
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     xvfb \
@@ -11,22 +12,24 @@ RUN apt-get update && apt-get install -y \
     libasound2 \
     dbus-x11 \
     xdotool \
+    gcc \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Configura a pasta de trabalho padrão
 WORKDIR /app
 
-# 3. Instala o Flask
-RUN pip install --no-cache-dir flask
+# 3. Copia o arquivo de requerimentos e instala as bibliotecas Python (Flask e Psutil)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# 4. Copia os arquivos do GitHub para o container
+# 4. Copia o restante dos arquivos do GitHub para o container
 COPY . .
 
-# 5. Cria a pasta HLS com permissão total de escrita
+# 5. Cria a pasta onde os arquivos .m3u8 serão salvos
 RUN mkdir -p static/hls && chmod -R 777 static/hls
 
-# Porta padrão de escuta informativa (o Render gerencia isso internamente)
 EXPOSE 5000
 
-# 6. Inicia a tela virtual antes do script Python
-CMD ["xvfb-run", "--server-args=-screen 0 1280x720x24", "python", "app.py"]
+# 6. Inicia o script principal
+CMD ["python", "app.py"]
