@@ -1,0 +1,32 @@
+name: Atualizador de Stream
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  atualizar:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Baixar arquivos
+      uses: actions/checkout@v3
+
+    - name: Configurar o Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Instalar ferramentas
+      run: pip install requests beautifulsoup4
+
+    - name: Rodar o robo
+      run: python captura.py
+
+    - name: Salvar o link no GitHub
+      run: |
+        git config --global user.name "GitHub Action"
+        git config --global user.email "action@github.com"
+        git add live.m3u8
+        git commit -m "Stream updated" || exit 0
+        git push
