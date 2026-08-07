@@ -8,85 +8,89 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const STREAM_DIR = path.join(__dirname, 'public/stream');
 
-// Garante que a pasta onde o streaming HLS será salvo exista em disco [2]
 if (!fs.existsSync(STREAM_DIR)){
     fs.mkdirSync(STREAM_DIR, { recursive: true });
 }
 
-// Serve publicamente os arquivos .m3u8 e os fragmentos de vídeo .ts [2]
 app.use('/stream', express.static(STREAM_DIR));
 
+// Rota raiz para testar no navegador se o servidor está online
+app.get('/', (req, res) => {
+    res.send('Servidor de Restream está Online! O link HLS fica em /stream/live.m3u8');
+});
+
 async function iniciarTransmissao() {
-    console.log("Iniciando navegador virtual dentro do Docker...");
+    console.log("Iniciando Chromium nativo no ambiente virtual...");
     
     let browser;
     try {
-        // Inicializa o Puppeteer configurado para a tela virtual (:99.0) criada no Dockerfile
         browser = await puppeteer.launch({
             headless: "new",
+            executablePath: '/usr/bin/chromium', // Caminho correto do Chromium no Debian/Ubuntu
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage', // Evita travamentos por falta de memória compartilhada no container
+                '--disable-dev-shm-usage', // Corrige falhas de falta de memória RAM no Docker
                 '--disable-gpu',
-                '--display=:99.0'          // Aponta para o display virtual do Xvfb
+                '--display=:99.0',         // Conecta diretamente na tela virtual Xvfb
+                '--autoplay-policy=no-user-gesture-required' // Força o vídeo do site a dar Play sozinho
             ]
         });
 
         const page = await browser.newPage();
         
-        // RECOMENDAÇÃO: Substitua pela URL do site que você deseja capturar
+        // MUDANÇA OBRIGATÓRIA: Altere para o site que você quer capturar
         const urlAlvo = 'https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch'; 
         
-        console.log(`Navegando até: ${urlAlvo}`);
-        await page.goto(urlAlvo, { waitUntil: 'networkidle2', timeout: 60000 });
-        
-        // Define a resolução exata da captura de tela (720p) [2]
+        console.log(`Navegando até a página de transmissão: ${urlAlvo}`);
+        await page.goto(urlAlvo, { waitUntil: 'domcontentloaded', timeout: 60000 }); // Troca para carregar mais rápido
         await page.setViewport({ width: 1280, height: 720 });
 
-        console.log("Iniciando processo do FFmpeg para geração do link HLS (.m3u8)...");
+        console.log("Iniciando codificação de vídeo e áudio com FFmpeg...");
 
-        // Argumentos do FFmpeg para capturar a tela virtual Linux e converter em streaming [2]
+        // Argumentos do FFmpeg otimizados para não travarem por falta de hardware físico
         const ffmpegArgs = [
-            '-f', 'x11grab',             // Captura a interface gráfica do servidor Linux [2]
-            '-video_size', '1280x720',    // Resolução da captura [2]
-            '-i', ':99.0',               // ID da tela virtual configurada no Dockerfile [2]
-            '-c:v', 'libx264',           // Codec de vídeo universal H.264 [2]
-            '-preset', 'ultrafast',       // Carregamento mais rápido possível para poupar a CPU da Render
-            '-b:v', '800k',              // Taxa de bits estável e leve para ambientes de nuvem [2]
-            '-maxrate', '1000k',
-            '-bufsize', '2000k',
-            '-g', '60',                  // Cria um Keyframe a cada 2 segundos (essencial para HLS)
-            '-f', 'hls',                 // Formato de saída HTTP Live Streaming [2]
-            '-hls_time', '4',            // Duração de cada segmento .ts em segundos [2]
-            '-hls_list_size', '5',       // Mantém apenas os últimos 5 segmentos na lista (evita lotar o disco) [2]
-            '-hls_flags', 'delete_segments', // Apaga automaticamente os arquivos antigos do servidor [2]
-            path.join(STREAM_DIR, 'live.m3u8') // Arquivo final gerado [2]
+            '-f', 'x11grab',
+            '-video_size', '1280x720',
+            '-i', ':99.0',               // Captura a tela virtual gerada pelo Xvfb
+            '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100', // Gera áudio silencioso virtual caso o site não envie áudio
+            '-c:v', 'libx264',
+            '-preset', 'ultrafast',       // Minimiza o uso de CPU para planos gratuitos
+            '-b:v', '600k',              // Bitrate reduzido para evitar gargalos na Render
+            '-maxrate', '800k',
+            '-bufsize', '1200k',
+            '-pix_fmt', 'yuv420p',
+            '-g', '50',
+            '-c:a', 'aac',
+            '-shortest',                  // Sincroniza término dos canais de mídia
+            '-f', 'hls',
+            '-hls_time', '4',
+            '-hls_list_size', '3',        // Reduzido para economizar espaço em disco
+            '-hls_flags', 'delete_segments',
+            path.join(STREAM_DIR, 'live.m3u8')
         ];
 
         const ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
 
-        // Captura mensagens de erro e logs de status vindos do FFmpeg
         ffmpegProcess.stderr.on('data', (data) => {
+            // Mostra os logs do FFmpeg no console da Render para sabermos se ele está capturando frames
             console.log(`[FFmpeg]: ${data.toString().trim()}`);
         });
 
         ffmpegProcess.on('close', async (code) => {
-            console.log(`FFmpeg foi encerrado (Código: ${code}). Reiniciando processo...`);
+            console.log(`FFmpeg parou (Código: ${code}). Reiniciando processo...`);
             try { await browser.close(); } catch(e) {}
-            setTimeout(iniciarTransmissao, 5000); // Tenta reconectar e recomeçar após 5 segundos [2]
+            setTimeout(iniciarTransmissao, 5000);
         });
 
     } catch (error) {
-        console.error("Erro crítico na execução do Restream:", error);
+        console.error("Erro no fluxo do Restream:", error);
         if (browser) { try { await browser.close(); } catch(e) {} }
-        setTimeout(iniciarTransmissao, 10000); // Em caso de falha de rede, aguarda 10 segundos e tenta novamente
+        setTimeout(iniciarTransmissao, 10000);
     }
 }
 
-// Inicia o servidor HTTP
 app.listen(PORT, () => {
-    console.log(`Servidor Web ativo na porta ${PORT}`);
-    console.log(`Seu link m3u8 final será gerado em: http://localhost:${PORT}/stream/live.m3u8`);
+    console.log(`Servidor HTTP iniciado na porta ${PORT}`);
     iniciarTransmissao();
 });
