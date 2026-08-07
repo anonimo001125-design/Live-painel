@@ -1,11 +1,12 @@
 {
-  "name": "fast-restream-hls",
+  "name": "captura-tela-restream",
   "version": "1.0.0",
   "main": "server.js",
+  "dependencies": {
+    "express": "^4.19.0",
+    "puppeteer": "^22.6.0"
+  },
   "scripts": {
     "start": "node server.js"
-  },
-  "dependencies": {
-    "express": "^4.19.0"
   }
 }
