@@ -4,16 +4,16 @@ import subprocess
 from playwright.sync_api import sync_playwright
 
 def iniciar():
-    # 1. Instala o túnel de forma direta e rápida sem travar o terminal
-    print("Iniciando tunel de rede alternativo...")
-    os.system("npm install -g localtunnel")
-    
-    # Executa o localtunnel em segundo plano na porta 8080
-    subprocess.Popen(["npx", "localtunnel", "--port", "8080"])
+    # 1. Abre um túnel ultra estável via Serveo em segundo plano na porta 8080
+    print("Iniciando tunel de rede de alta estabilidade...")
+    subprocess.Popen([
+        "ssh", "-o", "StrictHostKeyChecking=no", 
+        "-R", "80:localhost:8080", "serveo.net"
+    ])
     
     print("\n==========================================================")
     print("========= SEU STREAMING ESTA SENDO PREPARADO =========")
-    print("Aguarde a inicializacao do servidor de video...")
+    print("Olhe as primeiras linhas do log para pegar o link .serveo.net")
     print("==========================================================\n")
 
     with sync_playwright() as p:
@@ -26,7 +26,6 @@ def iniciar():
         )
         page = context.new_page()
         
-        # Sua URL alvo recuperada do log anterior
         url_alvo = "https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch"
         print(f"Acessando o site: {url_alvo}")
         
@@ -36,7 +35,6 @@ def iniciar():
         except Exception as e:
             print(f"Aviso durante a execucao: {e}")
         
-        # O FFmpeg processa o streaming diretamente
         ffmpeg_cmd = [
             "ffmpeg", "-f", "pulse", "-i", "default",
             "-c:v", "libx264", "-profile:v", "baseline", "-pix_fmt", "yuv420p",
@@ -49,8 +47,6 @@ def iniciar():
         print("Servidor ativo na porta 8080...")
         os.makedirs("stream", exist_ok=True)
         os.chdir("stream")
-        
-        # Mantém o servidor web ativo de forma contínua
         os.system("python3 -m http.server 8080")
 
 if __name__ == "__main__":
