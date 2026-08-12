@@ -9,26 +9,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Rodar Servidor e Tunnel
+      - name: Rodar Transmissao Unificada
         run: |
-          # 1. Cria a pasta para o streaming
           mkdir -p $(pwd)/stream
-          
-          # 2. Constroi o container Docker
           docker build -t app .
           
-          # 3. Inicia o Docker compartilhando a pasta do stream
-          docker run -d --name live -v $(pwd)/stream:/app/stream -p 8080:8080 app
-          
-          # 4. Instala o localtunnel diretamente na máquina principal
-          npm install -g localtunnel
-          
           echo "=========================================================="
-          echo " AGUARDE 10 SEGUNDOS PARA O NAVEGADOR CARREGAR A PAGINA... "
+          echo " INICIANDO SERVIDOR E CAPTURA DE TELA... "
           echo "=========================================================="
-          sleep 10
           
-          echo "================ SEU LINK DE TRANSMISSÃO ================"
-          echo ""
-          # 5. Abre o túnel apontando para o container que está na porta 8080
-          npx localtunnel --port 8080
+          # Executa o container mostrando todos os logs direto na sua tela
+          docker run --name live -v $(pwd)/stream:/app/stream -p 8080:8080 app
+          
