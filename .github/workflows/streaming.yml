@@ -13,11 +13,5 @@ jobs:
         run: |
           mkdir -p $(pwd)/stream
           docker build -t app .
-          
-          echo "=========================================================="
-          echo " INICIANDO SERVIDOR E CAPTURA DE TELA... "
-          echo "=========================================================="
-          
-          # Executa o container mostrando todos os logs direto na sua tela
           docker run --name live -v $(pwd)/stream:/app/stream -p 8080:8080 app
           
