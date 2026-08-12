@@ -6,7 +6,7 @@ from playwright.sync_api import sync_playwright
 def iniciar():
     # 1. Configura o Token do Ngrok para liberar o link público sem erros
     # COLE O SEU TOKEN DO NGROK ENTRE AS ASPAS ABAIXO:
-    TOKEN_NGROK = "SEU_TOKEN_DO_NGROK_AQUI"
+    TOKEN_NGROK = "3Hp2YbxQ2bolHAikPRlZgIA4Rtr_71CZKugfEWPTKPS9LXXJk"
     
     os.system(f"ngrok config add-authtoken {TOKEN_NGROK}")
     # Abre o túnel de internet na porta 8080 em segundo plano
