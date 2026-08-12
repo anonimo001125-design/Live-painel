@@ -19,8 +19,9 @@ jobs:
           pip install playwright pyngrok
           playwright install chromium --with-deps
 
-      - name: Iniciar Transmissao e Servidor
+            - name: Iniciar Transmissao e Servidor
         run: |
           mkdir -p stream
-          # Inicia a tela e o som virtual direto na máquina e roda o script
-          xvfb-run --server-args="-screen 0 1280x720x24" pulseaudio -D --exit-idle-time=-1 && python app.py
+          # Inicia apenas o som virtual e chama o Python direto de forma limpa
+          pulseaudio -D --exit-idle-time=-1 --system=false && python app.py
+          
