@@ -32,7 +32,7 @@ async function iniciarTransmissao() {
     await page.setViewport({ width: 1280, height: 720 });
 
     // URL DO SEU SITE: Altere o link abaixo para a sua página real
-    const urlAlvo = "https://google.com";
+    const urlAlvo = "https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch";
     console.log(`Acessando a página: ${urlAlvo}`);
     await page.goto(urlAlvo, { waitUntil: 'networkidle2' });
 
