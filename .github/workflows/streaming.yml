@@ -9,9 +9,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Rodar Transmissao Unificada
+      - name: Instalar Dependencias do Sistema
         run: |
-          mkdir -p $(pwd)/stream
-          docker build -t app .
-          docker run --name live -v $(pwd)/stream:/app/stream -p 8080:8080 app
-          
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg pulseaudio xvfb curl
+
+      - name: Instalar Playwright e Ngrok
+        run: |
+          pip install playwright pyngrok
+          playwright install chromium --with-deps
+
+      - name: Iniciar Transmissao e Servidor
+        run: |
+          mkdir -p stream
+          # Inicia a tela e o som virtual direto na máquina e roda o script
+          xvfb-run --server-args="-screen 0 1280x720x24" pulseaudio -D --exit-idle-time=-1 && python app.py
