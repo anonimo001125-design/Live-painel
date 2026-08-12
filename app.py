@@ -20,7 +20,7 @@ def iniciar():
 
     with sync_playwright() as p:
         print("Ligando navegador interno...")
-        browser = p.chromium.launch(headless=False, args=["--no-sandbox", "--disable-dev-shm-usage"])
+        browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
         page = browser.new_page(viewport={"width": 1280, "height": 720})
         
         # Mude para o link do site que você quer transmitir:
