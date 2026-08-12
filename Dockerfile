@@ -1,9 +1,10 @@
-FROM ghcr.io/puppeteer/puppeteer:22.10.0
+FROM node:18-bullseye-slim
 
-USER root
-
-# Instala o FFmpeg para processar o streaming m3u8
-RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+# Instala o FFmpeg e dependências de fontes/navegador de forma limpa
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    chromium \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
