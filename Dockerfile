@@ -1,13 +1,11 @@
-# Imagem padrao estavel
-FROM ubuntu:22.04
-
+FROM ://microsoft.com
 
 RUN apt-get update && apt-get install -y ffmpeg pulseaudio xvfb curl && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Instala as duas dependências direto aqui, sem precisar do arquivo requirements.txt
+RUN pip install --no-cache-dir playwright pyngrok
 
+WORKDIR /app
 COPY . .
 RUN mkdir -p /app/stream
 EXPOSE 8080
