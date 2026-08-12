@@ -1,0 +1,23 @@
+name: Stream
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-stream:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Docker
+        run: |
+          mkdir -p $(pwd)/stream
+          docker build -t app .
+          docker run -d --name live -v $(pwd)/stream:/app/stream -p 8080:8080 app
+
+      - name: Tunnel
+        run: |
+          npm install -g localtunnel
+          sleep 10
+          npx localtunnel --port 8080
+          
