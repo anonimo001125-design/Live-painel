@@ -20,7 +20,7 @@ def rodar_streaming():
         page = context.new_page()
         
         # URL DO SEU SITE: Altere o link abaixo para a sua página real
-        url_alvo = "https://google.com"
+        url_alvo = "https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch"
         print(f"Acessando: {url_alvo}")
         page.goto(url_alvo, wait_until="networkidle")
         
