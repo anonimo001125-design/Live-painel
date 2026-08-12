@@ -1,26 +1,25 @@
 import os
 import time
 import subprocess
+from playwright.sync_api import sync_playwright
 
 def iniciar():
-    # 1. Baixa o executável do Ngrok direto para a pasta do projeto
-    print("Baixando túnel de rede...")
-    os.system("curl -s -O https://equinox.io")
-    os.system("tar -xzf ngrok-stable-linux-amd64.tgz")
-    os.system("chmod +x ngrok")
-
-    # 2. COLE O SEU TOKEN DO NGROK ENTRE AS ASPAS ABAIXO:
+    # 1. COLE O SEU TOKEN DO NGROK ENTRE AS ASPAS ABAIXO:
     TOKEN_NGROK = "3Hp2YbxQ2bolHAikPRlZgIA4Rtr_71CZKugfEWPTKPS9LXXJk"
     
-    os.system(f"./ngrok config add-authtoken {TOKEN_NGROK}")
-    subprocess.Popen(["./ngrok", "http", "8080", "--log=stdout"])
-
-    # 3. Baixa o gravador leve diretamente
-    os.system("pip3 install playwright && playwright install --with-deps chromium")
+    # Baixa e configura o túnel de forma invisível e instantânea por dentro do Python
+    os.system(f"pip3 install pyngrok")
+    from pyngrok import ngrok
+    ngrok.set_auth_token(TOKEN_NGROK)
+    url_publica = ngrok.connect(8080).public_url
     
-    from playwright.sync_api import sync_playwright
+    print("\n==========================================================")
+    print("========= SEU LINK DE TRANSMISSÃO EM TEMPO REAL =========")
+    print(f"{url_publica}/live.m3u8")
+    print("==========================================================\n")
+
     with sync_playwright() as p:
-        print("Ligando navegador...")
+        print("Ligando navegador interno...")
         browser = p.chromium.launch(headless=False, args=["--no-sandbox", "--disable-dev-shm-usage"])
         page = browser.new_page(viewport={"width": 1280, "height": 720})
         
@@ -40,10 +39,9 @@ def iniciar():
         ]
         subprocess.Popen(ffmpeg_cmd)
         
-        print("Servidor ativo na porta 8080...")
-        os.makedirs("/app/stream", exist_ok=True)
         os.chdir("/app/stream")
         os.system("python3 -m http.server 8080")
 
 if __name__ == "__main__":
     iniciar()
+    
