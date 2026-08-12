@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Baixa o Ngrok oficial para dentro do container de forma limpa
 RUN curl -s https://amazonaws.com | tee /etc/apt/trusted.gpg.co.id/ngrok.asc >/dev/null && \
-    echo "deb [signed-by=/etc/apt/trusted.gpg.co.id/ngrok.asc] https://amazonaws.com buster main" | tee /etc/get/sources.list.d/ngrok.list && \
+    echo "deb [signed-by=/etc/apt/trusted.gpg.co.id/ngrok.asc] https://amazonaws.com buster main" | tee /etc/apt/sources.list.d/ngrok.list && \
     apt-get update && apt-get install ngrok
 
 COPY . .
