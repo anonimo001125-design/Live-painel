@@ -23,7 +23,7 @@ driver = webdriver.Chrome(options=chrome_options)
 driver.set_window_size(1280, 720)
 
 print("Acessando a página alvo...")
-driver.get("https://google.com") # Substitua pela sua URL alvo
+driver.get("https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch") # Substitua pela sua URL alvo
 
 # PAUSA CRÍTICA: Espera 8 segundos para a página, imagens e scripts carregarem por completo
 print("Aguardando renderização completa da página...")
