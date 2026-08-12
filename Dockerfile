@@ -1,4 +1,6 @@
-FROM ://microsoft.com
+# Imagem padrao estavel
+FROM ubuntu:22.04
+
 
 RUN apt-get update && apt-get install -y ffmpeg pulseaudio xvfb curl && rm -rf /var/lib/apt/lists/*
 
