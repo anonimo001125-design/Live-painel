@@ -4,7 +4,7 @@ import subprocess
 from playwright.sync_api import sync_playwright
 
 def iniciar():
-    # Cole aqui a sua chave cheia de letras e números que você pegou no Ngrok:
+    # COLE O SEU TOKEN DO NGROK ENTRE AS ASPAS ABAIXO:
     TOKEN_NGROK = "3Hp2YbxQ2bolHAikPRlZgIA4Rtr_71CZKugfEWPTKPS9LXXJk"
     
     os.system(f"ngrok config add-authtoken {TOKEN_NGROK}")
