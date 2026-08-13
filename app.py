@@ -3,7 +3,10 @@ import time
 import subprocess
 
 def iniciar():
-    # 1. Força a criação da tela virtual ativa ':99' primeiro
+    # 1. Cria a pasta de streaming logo no início
+    os.makedirs("stream", exist_ok=True)
+
+    # 2. Força a criação da tela virtual ativa ':99'
     os.system("Xvfb :99 -screen 0 1280x720x24 &")
     os.environ["DISPLAY"] = ":99"
     time.sleep(3) 
@@ -31,10 +34,7 @@ def iniciar():
         except Exception as e:
             print(f"Aviso no carregamento: {e}")
         
-        # Cria a pasta estritamente antes de rodar o FFmpeg
-        os.makedirs("stream", exist_ok=True)
-        
-        # COMANDO COMPLETO DO FFMPEG: Garante o codec h264 correto e os parâmetros de live hls (.m3u8)
+        # COMANDO DO FFMPEG: Gravando diretamente com o caminho completo correto
         ffmpeg_cmd = [
             "ffmpeg", "-f", "pulse", "-i", "default",
             "-f", "x11grab", "-draw_mouse", "0", "-video_size", "1280x720", "-i", ":99.0",
@@ -46,17 +46,16 @@ def iniciar():
         subprocess.Popen(ffmpeg_cmd)
         print("FFmpeg capturando imagem (sem mouse) e som em tempo real...")
         
-        # Inicia o túnel de rede ANTES do comando travador do servidor HTTP
-        print("Iniciando tunel de rede seguro e estavel (Serveo)...")
+        # Inicia o túnel de rede do Serveo
+        print("Iniciando tunel de rede seguro e estavel...")
         subprocess.Popen([
             "ssh", "-o", "StrictHostKeyChecking=no", 
             "-R", "80:localhost:8080", "serveo.net"
         ])
         
         print("Servidor HTTP ativo na porta 8080...")
-        os.chdir("stream")
-        # Liga o servidor de arquivos definitivo que mantém a live rodando
-        os.system("python3 -m http.server 8080")
+        # CORREÇÃO: Abre o servidor apontando diretamente para a pasta 'stream' sem mudar o script de lugar
+        os.system("python3 -m http.server 8080 --directory stream")
 
 if __name__ == "__main__":
     iniciar()
