@@ -65,29 +65,12 @@ def iniciar():
             page.goto(url_alvo, wait_until="commit", timeout=0)
             time.sleep(8)
             
-            # === COMANDO DO ESTICADOR INJETADO ===
-            # Esse código procura o player de vídeo na página e obriga ele a ocupar a tela inteira por cima de qualquer menu ou aba do site
-            page.evaluate("""
-                const style = document.createElement('style');
-                style.innerHTML = `
-                    video, .video-player, iframe, #player {
-                        position: fixed !important;
-                        top: 0 !important;
-                        left: 0 !important;
-                        width: 100vw !important;
-                        height: 100vh !important;
-                        z-index: 999999 !important;
-                        background: black !important;
-                    }
-                `;
-                document.head.appendChild(style);
-            """)
-            print("Esticador de video injetado com sucesso.")
+            # === CORREÇÃO: DUPLO CLIQUE NO CENTRO DA TELA ===
+            # Clica duas vezes seguidas muito rápido nos pixels (640, 360) que é o centro exato do player
+            page.mouse.dblclick(640, 360)
+            print("Duplo clique executado para forçar a tela cheia nativa do player.")
             time.sleep(2)
-
-            # Clica no centro do player para garantir o início do som e do play
-            page.mouse.click(640, 360)
-            print("Clique de ativacao executado.")
+            
         except Exception as e:
             print(f"Aviso inicial: {e}")
 
@@ -97,16 +80,11 @@ def iniciar():
             while True:
                 time.sleep(5)
                 try:
-                    # Se o site mudar de vídeo e recarregar a página, reinjeta o esticador para sumir com os novos menus automaticamente
-                    page.evaluate("""
-                        if (!document.getElementById('forced-fullscreen-style')) {
-                            const style = document.createElement('style');
-                            style.id = 'forced-fullscreen-style';
-                            style.innerHTML = 'video, .video-player, iframe, #player { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; z-index: 999999 !important; background: black !important; }';
-                            document.head.appendChild(style);
-                        }
-                    """)
-                    page.mouse.click(640, 360)
+                    # O robô analisa se o site saiu da tela cheia ao trocar de episódio
+                    is_fullscreen = page.evaluate("!!document.fullscreenElement")
+                    if not is_fullscreen:
+                        print("Detectada troca de video. Reforçando o duplo clique...")
+                        page.mouse.dblclick(640, 360)
                 except:
                     pass
         except KeyboardInterrupt:
