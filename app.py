@@ -6,7 +6,20 @@ def iniciar():
     # 1. Cria a pasta de streaming logo no início
     os.makedirs("stream", exist_ok=True)
 
-    # 2. Força a criação da tela virtual ativa ':99'
+    # 2. Abre o servidor HTTP em segundo plano imediatamente para nunca travar
+    print("Iniciando servidor HTTP na porta 8080...")
+    subprocess.Popen(["python3", "-m", "http.server", "8080", "--directory", "stream"])
+    time.sleep(2)
+
+    # 3. Inicia o túnel de rede do Serveo em segundo plano
+    print("Iniciando tunel de rede seguro e estavel...")
+    subprocess.Popen([
+        "ssh", "-o", "StrictHostKeyChecking=no", 
+        "-R", "80:localhost:8080", "serveo.net"
+    ])
+    time.sleep(3)
+
+    # 4. Força a criação da tela virtual ativa ':99'
     os.system("Xvfb :99 -screen 0 1280x720x24 &")
     os.environ["DISPLAY"] = ":99"
     time.sleep(3) 
@@ -34,7 +47,7 @@ def iniciar():
         except Exception as e:
             print(f"Aviso no carregamento: {e}")
         
-        # COMANDO DO FFMPEG: Gravando diretamente com o caminho completo correto
+        # COMANDO DO FFMPEG: Gravando diretamente na pasta 'stream'
         ffmpeg_cmd = [
             "ffmpeg", "-f", "pulse", "-i", "default",
             "-f", "x11grab", "-draw_mouse", "0", "-video_size", "1280x720", "-i", ":99.0",
@@ -43,19 +56,17 @@ def iniciar():
             "-hls_list_size", "5", "-hls_flags", "delete_segments", 
             "stream/live.m3u8"
         ]
-        subprocess.Popen(ffmpeg_cmd)
+        
         print("FFmpeg capturando imagem (sem mouse) e som em tempo real...")
+        processo_ffmpeg = subprocess.Popen(ffmpeg_cmd)
         
-        # Inicia o túnel de rede do Serveo
-        print("Iniciando tunel de rede seguro e estavel...")
-        subprocess.Popen([
-            "ssh", "-o", "StrictHostKeyChecking=no", 
-            "-R", "80:localhost:8080", "serveo.net"
-        ])
-        
-        print("Servidor HTTP ativo na porta 8080...")
-        # CORREÇÃO: Abre o servidor apontando diretamente para a pasta 'stream' sem mudar o script de lugar
-        os.system("python3 -m http.server 8080 --directory stream")
+        # Mantém o script principal vivo transmitindo sem parar
+        try:
+            while True:
+                time.sleep(60)
+        except KeyboardInterrupt:
+            processo_ffmpeg.terminate()
+            browser.close()
 
 if __name__ == "__main__":
     iniciar()
