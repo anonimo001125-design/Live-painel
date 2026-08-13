@@ -65,20 +65,19 @@ def iniciar():
             page.goto(url_alvo, wait_until="commit", timeout=0)
             time.sleep(10) # Tempo extra para o player carregar 100%
             
-            # Primeiro clique no meio para dar play e som
-            page.mouse.click(640, 360)
+            # === SUA SOLICITAÇÃO: DUPLO CLIQUE NO CENTRO ===
+            print("Executando duplo clique no centro do player...")
+            page.mouse.dblclick(640, 360)
             time.sleep(2)
             
-            # === MIRA LASER NO BOTÃO DO SITE ===
-            # Move o mouse para a barra de controle do vídeo aparecer
+            # === CLIQUE DE SEGURANÇA NO BOTÃO DO CANTO ===
+            # Move o mouse para baixo para os controles aparecerem e clica no ícone do canto
             page.mouse.move(640, 360)
-            time.sleep(1)
+            time.sleep(0.5)
             page.mouse.move(1240, 680)
-            time.sleep(1)
-            
-            # Clica exatamente na quina inferior direita (onde fica o ícone quadrado de tela cheia do site)
+            time.sleep(0.5)
             page.mouse.click(1240, 680)
-            print("Clique direto no botao de tela cheia do player executado.")
+            print("Clique de seguranca no botao nativo executado.")
             time.sleep(2)
             
         except Exception as e:
@@ -92,9 +91,13 @@ def iniciar():
                 try:
                     is_fullscreen = page.evaluate("!!document.fullscreenElement")
                     if not is_fullscreen:
-                        print("Detectada troca de video. Clicando no botao do player novamente...")
-                        page.mouse.move(640, 360)
+                        print("Detectada troca de video. Reativando tela cheia combinada...")
+                        # Repete o duplo clique no meio
+                        page.mouse.dblclick(640, 360)
                         time.sleep(1)
+                        # Repete o clique no botão do canto se necessário
+                        page.mouse.move(640, 360)
+                        time.sleep(0.5)
                         page.mouse.click(1240, 680)
                 except:
                     pass
