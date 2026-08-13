@@ -1,6 +1,7 @@
 import os
 import time
 import subprocess
+from playwright.sync_api import sync_playwright
 
 def iniciar():
     print("Iniciando tunel de rede seguro e estavel...")
@@ -19,10 +20,9 @@ def iniciar():
     os.environ["DISPLAY"] = ":99"
     time.sleep(3) # Tempo para a tela virtual ligar
 
-    from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         print("Ligando navegador na tela virtual externa...")
-        # Headless=False é SEGREDO! Obriga o navegador a desenhar as imagens na tela virtual :99
+        # Headless=False obriga o navegador a desenhar as imagens na tela virtual :99
         browser = p.chromium.launch(headless=False, args=["--no-sandbox", "--disable-dev-shm-usage"])
         page = browser.new_page(viewport={"width": 1280, "height": 720})
         
@@ -33,22 +33,27 @@ def iniciar():
             page.goto(url_alvo, wait_until="networkidle", timeout=0)
             print("Pagina carregada e visivel na tela virtual!")
             time.sleep(5)
+            
+            # Força o navegador a entrar no modo Tela Cheia (Full Screen) removendo as bordas
+            page.evaluate("document.documentElement.requestFullscreen()")
+            time.sleep(2)
+            
             # Simula um clique para destravar o player de vídeo e o áudio automático do site
             page.mouse.click(640, 360)
         except Exception as e:
             print(f"Aviso no carregamento: {e}")
         
-        # O FFmpeg agora captura diretamente a tela virtual ':99.0' onde o vídeo está passando de verdade
+        # O parâmetro "-draw_mouse 0" remove completamente a seta do mouse da gravação
         ffmpeg_cmd = [
             "ffmpeg", "-f", "pulse", "-i", "default",
-            "-f", "x11grab", "-video_size", "1280x720", "-i", ":99.0",
+            "-f", "x11grab", "-draw_mouse", "0", "-video_size", "1280x720", "-i", ":99.0",
             "-c:v", "libx264", "-profile:v", "baseline", "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-b:a", "128k", "-g", "60", "-hls_time", "2", 
             "-hls_list_size", "5", "-hls_flags", "delete_segments", 
             "stream/live.m3u8"
         ]
         subprocess.Popen(ffmpeg_cmd)
-        print("FFmpeg capturando imagem e som em tempo real...")
+        print("FFmpeg capturando imagem (sem mouse) e som em tempo real...")
         
         print("Servidor HTTP ativo na porta 8080...")
         os.makedirs("stream", exist_ok=True)
