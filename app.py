@@ -31,28 +31,31 @@ def iniciar():
         except Exception as e:
             print(f"Aviso no carregamento: {e}")
         
-        # Cria a pasta e ativa o FFmpeg sem a seta do mouse
+        # Cria a pasta estritamente antes de rodar o FFmpeg
         os.makedirs("stream", exist_ok=True)
         
+        # COMANDO COMPLETO DO FFMPEG: Garante o codec h264 correto e os parâmetros de live hls (.m3u8)
         ffmpeg_cmd = [
             "ffmpeg", "-f", "pulse", "-i", "default",
             "-f", "x11grab", "-draw_mouse", "0", "-video_size", "1280x720", "-i", ":99.0",
+            "-c:v", "libx264", "-profile:v", "baseline", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "128k", "-g", "60", "-hls_time", "2", 
+            "-hls_list_size", "5", "-hls_flags", "delete_segments", 
             "stream/live.m3u8"
         ]
         subprocess.Popen(ffmpeg_cmd)
         print("FFmpeg capturando imagem (sem mouse) e som em tempo real...")
         
-        print("Servidor HTTP ativo na porta 8080...")
-        os.chdir("stream")
-        
-        # === MUDANÇA CRÍTICA: Inicia o túnel de rede APÓS o servidor Python estar pronto ===
-        print("Iniciando tunel de rede seguro e estavel...")
+        # Inicia o túnel de rede ANTES do comando travador do servidor HTTP
+        print("Iniciando tunel de rede seguro e estavel (Serveo)...")
         subprocess.Popen([
             "ssh", "-o", "StrictHostKeyChecking=no", 
             "-R", "80:localhost:8080", "serveo.net"
         ])
         
-        # Liga o servidor de arquivos definitivo
+        print("Servidor HTTP ativo na porta 8080...")
+        os.chdir("stream")
+        # Liga o servidor de arquivos definitivo que mantém a live rodando
         os.system("python3 -m http.server 8080")
 
 if __name__ == "__main__":
