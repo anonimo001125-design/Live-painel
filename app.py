@@ -21,41 +21,41 @@ def iniciar():
     ])
     time.sleep(5)
 
-    # 4. Configura a tela virtual
+    # 4. Configura a tela virtual em alta definição para o corte funcionar perfeitamente
     os.system("Xvfb :99 -screen 0 1280x720x24 &")
     os.environ["DISPLAY"] = ":99"
     time.sleep(3) 
 
-    # 5. FFmpeg captura a tela virtual :99.0 limpa (sem mouse)
+    # 5. FFmpeg COM CORTADOR DE LENTE (CROP) ATIVADO
+    # O filtro "-vf crop=1000:562:140:100" diz para a gravação:
+    # "Corte uma janela de 1000x562 pixels, ignorando os primeiros 140 pixels da esquerda e os 100 pixels de aba do topo"
+    # Depois ele estica o resultado de volta para 1280x720 para o seu player receber em tela cheia pura!
     ffmpeg_cmd = [
         "ffmpeg", "-f", "pulse", "-i", "auto_null.monitor",
         "-f", "x11grab", "-draw_mouse", "0", "-video_size", "1280x720", "-i", ":99.0",
+        "-vf", "crop=1024:576:128:90,scale=1280:720", 
         "-c:v", "libx264", "-preset", "ultrafast", "-profile:v", "baseline", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-g", "60", "-hls_time", "2", 
         "-hls_list_size", "5", "-hls_flags", "delete_segments", 
         "stream/live.m3u8"
     ]
-    print("FFmpeg iniciando gravacao continua...")
+    print("FFmpeg iniciando gravacao com corte de bordas e abas automático...")
     processo_ffmpeg = subprocess.Popen(ffmpeg_cmd)
 
-    # 6. Inicializa o navegador focado
+    # 6. Inicializa o navegador padrão
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
-        print("Ligando navegador no MODO QUIOSQUE SEM ABAS...")
+        print("Ligando navegador no modo padrão estabilizado...")
         
         browser = p.chromium.launch(
             headless=False, 
             args=[
                 "--no-sandbox", 
                 "--disable-dev-shm-usage",
-                "--autoplay-policy=no-user-gesture-required",
-                "--kiosk",                     
-                "--fill-properties",
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--start-fullscreen"           
+                "--autoplay-policy=no-user-gesture-required"
             ]
         )
+        # Abre a janela do navegador esticada no tamanho máximo do servidor
         page = browser.new_page(viewport={"width": 1280, "height": 720})
         
         url_alvo = "https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch"
@@ -63,100 +63,21 @@ def iniciar():
         
         try:
             page.goto(url_alvo, wait_until="commit", timeout=0)
-            time.sleep(12) # Tempo para o player carregar completo
+            time.sleep(12) # Tempo para o vídeo começar a rodar sozinho de fundo
             
-            # Clique inicial para dar o foco e destravar o som
+            # Clica no centro da tela apenas para garantir que o som e o play fiquem ativos
             page.mouse.click(640, 360)
-            time.sleep(1)
-            
-            # === DESTRUIDOR DE MENUS E ABAS POR FORÇA BRUTA ===
-            # Esse script em JavaScript roda na página principal e em todas as internas.
-            # Ele localiza o player de vídeo e SIMPLESMENTE DELETA tudo o que está em volta dele na tela.
-            print("Executando a limpeza de elementos visuais do site...")
-            page.evaluate("""
-                // Move o player de vídeo para cobrir 100% da janela visível por cima de tudo
-                const videoEl = document.querySelector('video');
-                if (videoEl) {
-                    videoEl.style.setProperty('position', 'fixed', 'important');
-                    videoEl.style.setProperty('top', '0', 'important');
-                    videoEl.style.setProperty('left', '0', 'important');
-                    videoEl.style.setProperty('width', '100vw', 'important');
-                    videoEl.style.setProperty('height', '100vh', 'important');
-                    videoEl.style.setProperty('z-index', '999999', 'important');
-                }
-                
-                // Varre e oculta os cabeçalhos comuns que costumam ser as abas do site
-                const headers = document.querySelectorAll('header, nav, .navbar, .topbar, #header, .header, .aba, .menu');
-                headers.forEach(el => el.style.setProperty('display', 'none', 'important'));
-            """)
-            
-            # Aplica a mesma destruição de menus dentro de qualquer janela cega (iframe) que o site use
-            for frame in page.frames:
-                try:
-                    frame.evaluate("""
-                        const innerVideo = document.querySelector('video');
-                        if (innerVideo) {
-                            innerVideo.style.setProperty('position', 'fixed', 'important');
-                            innerVideo.style.setProperty('top', '0', 'important');
-                            innerVideo.style.setProperty('left', '0', 'important');
-                            innerVideo.style.setProperty('width', '100vw', 'important');
-                            innerVideo.style.setProperty('height', '100vh', 'important');
-                            innerVideo.style.setProperty('z-index', '999999', 'important');
-                        }
-                        const innerHeaders = document.querySelectorAll('header, nav, .navbar, .topbar, #header, .header, .aba, .menu');
-                        innerHeaders.forEach(el => el.style.setProperty('display', 'none', 'important'));
-                    """)
-                except:
-                    pass
-            
-            print("Limpeza concluída. Forçando cliques de play...")
-            time.sleep(2)
-            page.mouse.click(640, 360)
-            
+            print("Clique de ativação de áudio concluído.")
         except Exception as e:
             print(f"Aviso inicial: {e}")
 
-        # === MONITOR DE MANUTENÇÃO DA LIMPEZA (Para troca de episódios) ===
-        print("Vigia de troca de videos ativo...")
+        # === MONITOR DE RECONEXÃO CONTINUO ===
+        print("Transmissão com corte inteligente ativa...")
         try:
             while True:
-                time.sleep(5) # Verifica a cada 5 segundos se o site mudou de vídeo
+                time.sleep(10)
                 try:
-                    # Se o site mudar de vídeo e os menus voltarem, o vigia apaga tudo de novo na hora
-                    page.evaluate("""
-                        const videoEl = document.querySelector('video');
-                        if (videoEl && videoEl.style.position !== 'fixed') {
-                            videoEl.style.setProperty('position', 'fixed', 'important');
-                            videoEl.style.setProperty('top', '0', 'important');
-                            videoEl.style.setProperty('left', '0', 'important');
-                            videoEl.style.setProperty('width', '100vw', 'important');
-                            videoEl.style.setProperty('height', '100vh', 'important');
-                            videoEl.style.setProperty('z-index', '999999', 'important');
-                            
-                            const headers = document.querySelectorAll('header, nav, .navbar, .topbar, #header, .header, .aba, .menu');
-                            headers.forEach(el => el.style.setProperty('display', 'none', 'important'));
-                        }
-                    """)
-                    
-                    for frame in page.frames:
-                        try:
-                            frame.evaluate("""
-                                const innerVideo = document.querySelector('video');
-                                if (innerVideo && innerVideo.style.position !== 'fixed') {
-                                    innerVideo.style.setProperty('position', 'fixed', 'important');
-                                    innerVideo.style.setProperty('top', '0', 'important');
-                                    innerVideo.style.setProperty('left', '0', 'important');
-                                    innerVideo.style.setProperty('width', '100vw', 'important');
-                                    innerVideo.style.setProperty('height', '100vh', 'important');
-                                    innerVideo.style.setProperty('z-index', '999999', 'important');
-                                    
-                                    const innerHeaders = document.querySelectorAll('header, nav, .navbar, .topbar, #header, .header, .aba, .menu');
-                                    innerHeaders.forEach(el => el.style.setProperty('display', 'none', 'important'));
-                                }
-                            """)
-                        except:
-                            pass
-                            
+                    # Apenas mantém o foco dando cliques caso o site troque de episódio e pause
                     page.mouse.click(640, 360)
                 except:
                     pass
