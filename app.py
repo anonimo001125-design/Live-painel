@@ -1,50 +1,56 @@
 import os
 import time
 import subprocess
-from playwright.sync_api import sync_playwright
 
 def iniciar():
-    # 1. Abre um túnel ultra estável via Serveo em segundo plano na porta 8080
-    print("Iniciando tunel de rede de alta estabilidade...")
+    print("Iniciando tunel de rede seguro e estavel...")
+    # Abre o túnel do Serveo na porta 8080 em segundo plano
     subprocess.Popen([
         "ssh", "-o", "StrictHostKeyChecking=no", 
         "-R", "80:localhost:8080", "serveo.net"
     ])
     
     print("\n==========================================================")
-    print("========= SEU STREAMING ESTA SENDO PREPARADO =========")
-    print("Olhe as primeiras linhas do log para pegar o link .serveo.net")
+    print(" AGUARDE O LINK .SERVEO.NET APARECER NAS PROXIMAS LINHAS... ")
     print("==========================================================\n")
 
+    # Força a criação da tela virtual ativa ':99' diretamente pelo Python para evitar erros
+    os.system("Xvfb :99 -screen 0 1280x720x24 &")
+    os.environ["DISPLAY"] = ":99"
+    time.sleep(3) # Tempo para a tela virtual ligar
+
+    from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
-        print("Ligando navegador interno com gravador de video...")
-        
-        browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-        context = browser.new_context(
-            viewport={"width": 1280, "height": 720},
-            record_video_dir="stream/"
-        )
-        page = context.new_page()
+        print("Ligando navegador na tela virtual externa...")
+        # Headless=False é SEGREDO! Obriga o navegador a desenhar as imagens na tela virtual :99
+        browser = p.chromium.launch(headless=False, args=["--no-sandbox", "--disable-dev-shm-usage"])
+        page = browser.new_page(viewport={"width": 1280, "height": 720})
         
         url_alvo = "https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch"
         print(f"Acessando o site: {url_alvo}")
         
         try:
-            page.goto(url_alvo, wait_until="commit", timeout=0)
-            print("Pagina conectada! Gerando transmissao...")
+            page.goto(url_alvo, wait_until="networkidle", timeout=0)
+            print("Pagina carregada e visivel na tela virtual!")
+            time.sleep(5)
+            # Simula um clique para destravar o player de vídeo e o áudio automático do site
+            page.mouse.click(640, 360)
         except Exception as e:
-            print(f"Aviso durante a execucao: {e}")
+            print(f"Aviso no carregamento: {e}")
         
+        # O FFmpeg agora captura diretamente a tela virtual ':99.0' onde o vídeo está passando de verdade
         ffmpeg_cmd = [
             "ffmpeg", "-f", "pulse", "-i", "default",
+            "-f", "x11grab", "-video_size", "1280x720", "-i", ":99.0",
             "-c:v", "libx264", "-profile:v", "baseline", "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-b:a", "128k", "-g", "60", "-hls_time", "2", 
             "-hls_list_size", "5", "-hls_flags", "delete_segments", 
             "stream/live.m3u8"
         ]
         subprocess.Popen(ffmpeg_cmd)
+        print("FFmpeg capturando imagem e som em tempo real...")
         
-        print("Servidor ativo na porta 8080...")
+        print("Servidor HTTP ativo na porta 8080...")
         os.makedirs("stream", exist_ok=True)
         os.chdir("stream")
         os.system("python3 -m http.server 8080")
