@@ -63,49 +63,101 @@ def iniciar():
         
         try:
             page.goto(url_alvo, wait_until="commit", timeout=0)
-            time.sleep(12) # Tempo para o player e todas as janelas internas carregarem
+            time.sleep(12) # Tempo para o player carregar completo
             
             # Clique inicial para dar o foco e destravar o som
             page.mouse.click(640, 360)
             time.sleep(1)
             
-            # === CHAVE MESTRA: ENTRA DENTRO DO IFRAME E FORÇA TELA CHEIA NO PLAYER REAL ===
-            print("Procurando o player dentro das janelas protegidas do site...")
+            # === DESTRUIDOR DE MENUS E ABAS POR FORÇA BRUTA ===
+            # Esse script em JavaScript roda na página principal e em todas as internas.
+            # Ele localiza o player de vídeo e SIMPLESMENTE DELETA tudo o que está em volta dele na tela.
+            print("Executando a limpeza de elementos visuais do site...")
+            page.evaluate("""
+                // Move o player de vídeo para cobrir 100% da janela visível por cima de tudo
+                const videoEl = document.querySelector('video');
+                if (videoEl) {
+                    videoEl.style.setProperty('position', 'fixed', 'important');
+                    videoEl.style.setProperty('top', '0', 'important');
+                    videoEl.style.setProperty('left', '0', 'important');
+                    videoEl.style.setProperty('width', '100vw', 'important');
+                    videoEl.style.setProperty('height', '100vh', 'important');
+                    videoEl.style.setProperty('z-index', '999999', 'important');
+                }
+                
+                // Varre e oculta os cabeçalhos comuns que costumam ser as abas do site
+                const headers = document.querySelectorAll('header, nav, .navbar, .topbar, #header, .header, .aba, .menu');
+                headers.forEach(el => el.style.setProperty('display', 'none', 'important'));
+            """)
+            
+            # Aplica a mesma destruição de menus dentro de qualquer janela cega (iframe) que o site use
             for frame in page.frames:
                 try:
-                    # Injeta o comando de tela cheia em absolutamente todas as janelas internas que existirem na página
-                    frame.evaluate("document.documentElement.requestFullscreen()")
-                    # Se achar o botão de tela cheia padrão de vídeo dentro do frame, força o clique nele por ID ou classe
-                    frame.evaluate("document.querySelector('video').requestFullscreen()")
+                    frame.evaluate("""
+                        const innerVideo = document.querySelector('video');
+                        if (innerVideo) {
+                            innerVideo.style.setProperty('position', 'fixed', 'important');
+                            innerVideo.style.setProperty('top', '0', 'important');
+                            innerVideo.style.setProperty('left', '0', 'important');
+                            innerVideo.style.setProperty('width', '100vw', 'important');
+                            innerVideo.style.setProperty('height', '100vh', 'important');
+                            innerVideo.style.setProperty('z-index', '999999', 'important');
+                        }
+                        const innerHeaders = document.querySelectorAll('header, nav, .navbar, .topbar, #header, .header, .aba, .menu');
+                        innerHeaders.forEach(el => el.style.setProperty('display', 'none', 'important'));
+                    """)
                 except:
                     pass
             
-            print("Comando de tela cheia injetado em todas as camadas internas.")
+            print("Limpeza concluída. Forçando cliques de play...")
             time.sleep(2)
-            
-            # Executa o duplo clique geral no centro para garantir o acionamento alternativo
-            page.mouse.dblclick(640, 360)
+            page.mouse.click(640, 360)
             
         except Exception as e:
             print(f"Aviso inicial: {e}")
 
-        # === MONITOR DE RECONEXÃO PARA TROCA DE VÍDEO ===
+        # === MONITOR DE MANUTENÇÃO DA LIMPEZA (Para troca de episódios) ===
         print("Vigia de troca de videos ativo...")
         try:
             while True:
-                time.sleep(60) # Modificado para 60 segundos para não sobrecarregar as trocas
+                time.sleep(5) # Verifica a cada 5 segundos se o site mudou de vídeo
                 try:
-                    is_fullscreen = page.evaluate("!!document.fullscreenElement")
-                    if not is_fullscreen:
-                        print("Detectada troca de video. Reaplicando a chave mestra em todas as camadas...")
-                        page.mouse.click(640, 360)
-                        for frame in page.frames:
-                            try:
-                                frame.evaluate("document.documentElement.requestFullscreen()")
-                                frame.evaluate("document.querySelector('video').requestFullscreen()")
-                            except:
-                                pass
-                        page.mouse.dblclick(640, 360)
+                    # Se o site mudar de vídeo e os menus voltarem, o vigia apaga tudo de novo na hora
+                    page.evaluate("""
+                        const videoEl = document.querySelector('video');
+                        if (videoEl && videoEl.style.position !== 'fixed') {
+                            videoEl.style.setProperty('position', 'fixed', 'important');
+                            videoEl.style.setProperty('top', '0', 'important');
+                            videoEl.style.setProperty('left', '0', 'important');
+                            videoEl.style.setProperty('width', '100vw', 'important');
+                            videoEl.style.setProperty('height', '100vh', 'important');
+                            videoEl.style.setProperty('z-index', '999999', 'important');
+                            
+                            const headers = document.querySelectorAll('header, nav, .navbar, .topbar, #header, .header, .aba, .menu');
+                            headers.forEach(el => el.style.setProperty('display', 'none', 'important'));
+                        }
+                    """)
+                    
+                    for frame in page.frames:
+                        try:
+                            frame.evaluate("""
+                                const innerVideo = document.querySelector('video');
+                                if (innerVideo && innerVideo.style.position !== 'fixed') {
+                                    innerVideo.style.setProperty('position', 'fixed', 'important');
+                                    innerVideo.style.setProperty('top', '0', 'important');
+                                    innerVideo.style.setProperty('left', '0', 'important');
+                                    innerVideo.style.setProperty('width', '100vw', 'important');
+                                    innerVideo.style.setProperty('height', '100vh', 'important');
+                                    innerVideo.style.setProperty('z-index', '999999', 'important');
+                                    
+                                    const innerHeaders = document.querySelectorAll('header, nav, .navbar, .topbar, #header, .header, .aba, .menu');
+                                    innerHeaders.forEach(el => el.style.setProperty('display', 'none', 'important'));
+                                }
+                            """)
+                        except:
+                            pass
+                            
+                    page.mouse.click(640, 360)
                 except:
                     pass
         except KeyboardInterrupt:
