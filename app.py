@@ -3,15 +3,15 @@ import time
 import subprocess
 
 def iniciar():
-    print("Iniciando tunel de rede alternativo ultra estavel (Pinggy)...")
-    # Abre o túnel do Pinggy na porta 8080 em segundo plano (Não cai e não precisa de cadastro)
+    print("Iniciando tunel de rede seguro e estavel (Porta de Emergência)...")
+    # Usa a porta alternativa 443 do Serveo que pula o bloqueio de conexões gratuitas
     subprocess.Popen([
-        "ssh", "-o", "StrictHostKeyChecking=no", 
-        "-R", "80:localhost:8080", "a.pinggy.io"
+        "ssh", "-o", "StrictHostKeyChecking=no", "-o", "ServerAliveInterval=60",
+        "-p", "443", "-R", "80:localhost:8080", "serveo.net"
     ])
     
     print("\n==========================================================")
-    print(" AGUARDE O LINK .PINGGY.LINK APARECER NAS PROXIMAS LINHAS... ")
+    print(" AGUARDE O LINK .SERVEO.NET APARECER NAS PROXIMAS LINHAS... ")
     print("==========================================================\n")
 
     # Força a criação da tela virtual ativa ':99' diretamente pelo Python
@@ -22,7 +22,7 @@ def iniciar():
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         print("Ligando navegador na tela virtual externa...")
-        # Mantido Headless=False para desenhar o vídeo na tela virtual :99
+        # Headless=False obriga o navegador a desenhar as imagens na tela virtual :99
         browser = p.chromium.launch(headless=False, args=["--no-sandbox", "--disable-dev-shm-usage"])
         page = browser.new_page(viewport={"width": 1280, "height": 720})
         
@@ -63,4 +63,4 @@ def iniciar():
         os.system("python3 -m http.server 8080")
 
 if __name__ == "__main__":
-    ini_process = iniciar()
+    iniciar()
