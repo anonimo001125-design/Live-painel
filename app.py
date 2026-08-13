@@ -63,12 +63,22 @@ def iniciar():
         
         try:
             page.goto(url_alvo, wait_until="commit", timeout=0)
-            time.sleep(8)
+            time.sleep(10) # Tempo extra para o player carregar 100%
             
-            # === CORREÇÃO: DUPLO CLIQUE NO CENTRO DA TELA ===
-            # Clica duas vezes seguidas muito rápido nos pixels (640, 360) que é o centro exato do player
-            page.mouse.dblclick(640, 360)
-            print("Duplo clique executado para forçar a tela cheia nativa do player.")
+            # Primeiro clique no meio para dar play e som
+            page.mouse.click(640, 360)
+            time.sleep(2)
+            
+            # === MIRA LASER NO BOTÃO DO SITE ===
+            # Move o mouse para a barra de controle do vídeo aparecer
+            page.mouse.move(640, 360)
+            time.sleep(1)
+            page.mouse.move(1240, 680)
+            time.sleep(1)
+            
+            # Clica exatamente na quina inferior direita (onde fica o ícone quadrado de tela cheia do site)
+            page.mouse.click(1240, 680)
+            print("Clique direto no botao de tela cheia do player executado.")
             time.sleep(2)
             
         except Exception as e:
@@ -80,11 +90,12 @@ def iniciar():
             while True:
                 time.sleep(5)
                 try:
-                    # O robô analisa se o site saiu da tela cheia ao trocar de episódio
                     is_fullscreen = page.evaluate("!!document.fullscreenElement")
                     if not is_fullscreen:
-                        print("Detectada troca de video. Reforçando o duplo clique...")
-                        page.mouse.dblclick(640, 360)
+                        print("Detectada troca de video. Clicando no botao do player novamente...")
+                        page.mouse.move(640, 360)
+                        time.sleep(1)
+                        page.mouse.click(1240, 680)
                 except:
                     pass
         except KeyboardInterrupt:
