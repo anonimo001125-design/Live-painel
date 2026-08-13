@@ -63,22 +63,28 @@ def iniciar():
         
         try:
             page.goto(url_alvo, wait_until="commit", timeout=0)
-            time.sleep(10) # Tempo extra para o player carregar 100%
+            time.sleep(12) # Tempo para o player e todas as janelas internas carregarem
             
-            # === SUA SOLICITAÇÃO: DUPLO CLIQUE NO CENTRO ===
-            print("Executando duplo clique no centro do player...")
+            # Clique inicial para dar o foco e destravar o som
+            page.mouse.click(640, 360)
+            time.sleep(1)
+            
+            # === CHAVE MESTRA: ENTRA DENTRO DO IFRAME E FORÇA TELA CHEIA NO PLAYER REAL ===
+            print("Procurando o player dentro das janelas protegidas do site...")
+            for frame in page.frames:
+                try:
+                    # Injeta o comando de tela cheia em absolutamente todas as janelas internas que existirem na página
+                    frame.evaluate("document.documentElement.requestFullscreen()")
+                    # Se achar o botão de tela cheia padrão de vídeo dentro do frame, força o clique nele por ID ou classe
+                    frame.evaluate("document.querySelector('video').requestFullscreen()")
+                except:
+                    pass
+            
+            print("Comando de tela cheia injetado em todas as camadas internas.")
+            time.sleep(2)
+            
+            # Executa o duplo clique geral no centro para garantir o acionamento alternativo
             page.mouse.dblclick(640, 360)
-            time.sleep(2)
-            
-            # === CLIQUE DE SEGURANÇA NO BOTÃO DO CANTO ===
-            # Move o mouse para baixo para os controles aparecerem e clica no ícone do canto
-            page.mouse.move(640, 360)
-            time.sleep(0.5)
-            page.mouse.move(1240, 680)
-            time.sleep(0.5)
-            page.mouse.click(1240, 680)
-            print("Clique de seguranca no botao nativo executado.")
-            time.sleep(2)
             
         except Exception as e:
             print(f"Aviso inicial: {e}")
@@ -87,18 +93,19 @@ def iniciar():
         print("Vigia de troca de videos ativo...")
         try:
             while True:
-                time.sleep(5)
+                time.sleep(60) # Modificado para 60 segundos para não sobrecarregar as trocas
                 try:
                     is_fullscreen = page.evaluate("!!document.fullscreenElement")
                     if not is_fullscreen:
-                        print("Detectada troca de video. Reativando tela cheia combinada...")
-                        # Repete o duplo clique no meio
+                        print("Detectada troca de video. Reaplicando a chave mestra em todas as camadas...")
+                        page.mouse.click(640, 360)
+                        for frame in page.frames:
+                            try:
+                                frame.evaluate("document.documentElement.requestFullscreen()")
+                                frame.evaluate("document.querySelector('video').requestFullscreen()")
+                            except:
+                                pass
                         page.mouse.dblclick(640, 360)
-                        time.sleep(1)
-                        # Repete o clique no botão do canto se necessário
-                        page.mouse.move(640, 360)
-                        time.sleep(0.5)
-                        page.mouse.click(1240, 680)
                 except:
                     pass
         except KeyboardInterrupt:
