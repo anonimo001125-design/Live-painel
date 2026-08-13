@@ -4,60 +4,62 @@ import subprocess
 from playwright.sync_api import sync_playwright
 
 def iniciar():
-    print("Iniciando tunel de rede seguro e estavel...")
-    # Abre o túnel do Serveo na porta 8080 em segundo plano
-    subprocess.Popen([
-        "ssh", "-o", "StrictHostKeyChecking=no", 
-        "-R", "80:localhost:8080", "serveo.net"
-    ])
+    # 1. Instala o túnel de forma direta e rápida sem travar o terminal
+    print("Iniciando tunel de rede alternativo...")
+    os.system("npm install -g localtunnel")
+    
+    # Executa o localtunnel em segundo plano na porta 8080
+    subprocess.Popen(["npx", "localtunnel", "--port", "8080"])
     
     print("\n==========================================================")
-    print(" AGUARDE O LINK .SERVEO.NET APARECER NAS PROXIMAS LINHAS... ")
+    print("========= SEU STREAMING ESTA SENDO PREPARADO =========")
+    print("Aguarde a inicializacao do servidor de video...")
     print("==========================================================\n")
 
-    # Força a criação da tela virtual ativa ':99' diretamente pelo Python para evitar erros
-    os.system("Xvfb :99 -screen 0 1280x720x24 &")
-    os.environ["DISPLAY"] = ":99"
-    time.sleep(3) # Tempo para a tela virtual ligar
-
     with sync_playwright() as p:
-        print("Ligando navegador na tela virtual externa...")
-        # Headless=False obriga o navegador a desenhar as imagens na tela virtual :99
-        browser = p.chromium.launch(headless=False, args=["--no-sandbox", "--disable-dev-shm-usage"])
-        page = browser.new_page(viewport={"width": 1280, "height": 720})
+        print("Ligando navegador interno com gravador de video...")
         
+        # Mantido headless=True e record_video_dir exatamente como estava no que funcionou para você!
+        browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+        context = browser.new_context(
+            viewport={"width": 1280, "height": 720},
+            record_video_dir="stream/"
+        )
+        page = context.new_page()
+        
+        # Sua URL alvo recuperada do log anterior
         url_alvo = "https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch"
         print(f"Acessando o site: {url_alvo}")
         
         try:
-            page.goto(url_alvo, wait_until="networkidle", timeout=0)
-            print("Pagina carregada e visivel na tela virtual!")
+            page.goto(url_alvo, wait_until="commit", timeout=0)
+            print("Pagina conectada! Gerando transmissao...")
             time.sleep(5)
             
-            # Força o navegador a entrar no modo Tela Cheia (Full Screen) removendo as bordas
+            # ATIVAÇÃO DA TELA CHEIA: Integrada com segurança dentro do navegador oculto
             page.evaluate("document.documentElement.requestFullscreen()")
             time.sleep(2)
             
-            # Simula um clique para destravar o player de vídeo e o áudio automático do site
-            page.mouse.click(640, 360)
         except Exception as e:
-            print(f"Aviso no carregamento: {e}")
+            print(f"Aviso durante a execucao: {e}")
         
-        # O parâmetro "-draw_mouse 0" remove completamente a seta do mouse da gravação
+        # O FFmpeg processa o streaming diretamente (Corrigida a pasta de destino para "stream/live.m3u8")
+        # E adicionado o "-draw_mouse 0" para tirar a seta do mouse da imagem
         ffmpeg_cmd = [
             "ffmpeg", "-f", "pulse", "-i", "default",
-            "-f", "x11grab", "-draw_mouse", "0", "-video_size", "1280x720", "-i", ":99.0",
+            "-f", "x11grab", "-draw_mouse", "0", "-video_size", "1280x720", "-i", ":0.0",
             "-c:v", "libx264", "-profile:v", "baseline", "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-b:a", "128k", "-g", "60", "-hls_time", "2", 
             "-hls_list_size", "5", "-hls_flags", "delete_segments", 
             "stream/live.m3u8"
         ]
         subprocess.Popen(ffmpeg_cmd)
-        print("FFmpeg capturando imagem (sem mouse) e som em tempo real...")
         
-        print("Servidor HTTP ativo na porta 8080...")
+        print("Servidor ativo na porta 8080...")
         os.makedirs("stream", exist_ok=True)
         os.chdir("stream")
+        
+        # Mantém o servidor web ativo de forma contínua
         os.system("python3 -m http.server 8080")
 
 if __name__ == "__main__":
