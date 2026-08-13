@@ -26,7 +26,6 @@ def iniciar():
         browser = p.chromium.launch(headless=False, args=["--no-sandbox", "--disable-dev-shm-usage"])
         page = browser.new_page(viewport={"width": 1280, "height": 720})
         
-        # Coloquei o link completo do seu painel que estava no log do seu erro anterior
         url_alvo = "https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch"
         print(f"Acessando o site: {url_alvo}")
         
@@ -34,32 +33,25 @@ def iniciar():
             page.goto(url_alvo, wait_until="networkidle", timeout=0)
             print("Pagina carregada e visivel na tela virtual!")
             time.sleep(5)
-            
-            # === MODIFICAÇÃO 1: Força a página a entrar em Tela Cheia (Full Screen) ===
-            page.evaluate("document.documentElement.requestFullscreen()")
-            time.sleep(2)
-            
             # Simula um clique para destravar o player de vídeo e o áudio automático do site
             page.mouse.click(640, 360)
         except Exception as e:
             print(f"Aviso no carregamento: {e}")
         
-        # Cria a pasta antes para o FFmpeg não dar erro de caminho
-        os.makedirs("stream", exist_ok=True)
-        
-        # === MODIFICAÇÃO 2: Adicionado "-draw_mouse", "0" para esconder a seta do mouse ===
+        # O FFmpeg agora captura diretamente a tela virtual ':99.0' onde o vídeo está passando de verdade
         ffmpeg_cmd = [
             "ffmpeg", "-f", "pulse", "-i", "default",
-            "-f", "x11grab", "-draw_mouse", "0", "-video_size", "1280x720", "-i", ":99.0",
+            "-f", "x11grab", "-video_size", "1280x720", "-i", ":99.0",
             "-c:v", "libx264", "-profile:v", "baseline", "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-b:a", "128k", "-g", "60", "-hls_time", "2", 
             "-hls_list_size", "5", "-hls_flags", "delete_segments", 
             "stream/live.m3u8"
         ]
         subprocess.Popen(ffmpeg_cmd)
-        print("FFmpeg capturando imagem (sem mouse) e som em tempo real...")
+        print("FFmpeg capturando imagem e som em tempo real...")
         
         print("Servidor HTTP ativo na porta 8080...")
+        os.makedirs("stream", exist_ok=True)
         os.chdir("stream")
         os.system("python3 -m http.server 8080")
 
