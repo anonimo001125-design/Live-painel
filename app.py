@@ -1,36 +1,46 @@
 import os
 import time
 import subprocess
-import json
-import urllib.request
+from playwright.sync_api import sync_playwright
 
 def iniciar():
-    # 1. Prepara a pasta de streaming
+    # 1. Prepara as pastas do projeto
     os.makedirs("stream", exist_ok=True)
     with open("stream/live.m3u8", "w") as f:
         f.write("#EXTM3U\n")
 
-    # 2. Inicia o servidor HTTP em segundo plano
-    print("Iniciando servidor HTTP na porta 8080...")
+    # 2. Configura o Token do Ngrok para liberar o link público
+    # COLE O SEU TOKEN DO NGROK ENTRE AS ASPAS ABAIXO:
+    TOKEN_NGROK = "SEU_TOKEN_AQUI"
+    
+    print("Iniciando tunel seguro com Ngrok...")
+    os.system(f"pip install pyngrok")
+    from pyngrok import ngrok
+    ngrok.set_auth_token(TOKEN_NGROK)
+    
+    # Abre o túnel principal na porta 8080 para a live e o painel de controle
+    url_publica = ngrok.connect(8080).public_url
+    
+    print("\n==========================================================")
+    print("========= SEU LINK DE TRANSMISSÃO (IPTV/VLC) =========")
+    print(f"{url_publica}/live.m3u8")
+    print("==========================================================")
+    print("========= PAINEL DE CONTROLE (ABRA NO NAVEGADOR) =========")
+    print("Para interagir com a tela e ativar o botão de tela cheia,")
+    print("copie o link abaixo, tire o '/live.m3u8' e mude a porta para ver a tela:")
+    print(f"Acesse o painel do Ngrok para ver o status.")
+    print("==========================================================\n")
+
+    # 3. Inicia o servidor HTTP em segundo plano
     subprocess.Popen(["python3", "-m", "http.server", "8080", "--directory", "stream"])
     time.sleep(2)
-
-    # 3. Liga o túnel do Serveo
-    print("Iniciando tunel de rede seguro e estavel...")
-    # Salva os logs do túnel em um arquivo temporario para podermos ler o endereço depois
-    with open("tunnel.log", "w") as log_file:
-        subprocess.Popen([
-            "ssh", "-o", "StrictHostKeyChecking=no", 
-            "-R", "80:localhost:8080", "serveo.net"
-        ], stdout=log_file, stderr=log_file)
-    time.sleep(5)
 
     # 4. Configura a tela virtual em alta definição
     os.system("Xvfb :99 -screen 0 1280x720x24 &")
     os.environ["DISPLAY"] = ":99"
     time.sleep(3) 
 
-    # 5. FFmpeg captura a tela virtual :99.0 completa e limpa (sem mouse)
+    # 5. FFmpeg captura a tela virtual :99.0 limpa e sem o mouse
     ffmpeg_cmd = [
         "ffmpeg", "-f", "pulse", "-i", "auto_null.monitor",
         "-f", "x11grab", "-draw_mouse", "0", "-video_size", "1280x720", "-i", ":99.0",
@@ -39,41 +49,18 @@ def iniciar():
         "-hls_list_size", "5", "-hls_flags", "delete_segments", 
         "stream/live.m3u8"
     ]
-    print("FFmpeg iniciando gravacao em alta definicao...")
+    print("FFmpeg iniciando gravacao em tempo real...")
     processo_ffmpeg = subprocess.Popen(ffmpeg_cmd)
 
-    # Tenta ler o link que o Serveo gerou dentro do arquivo temporário
-    link_serveo = "https://serveo.net"
-    try:
-        with open("tunnel.log", "r") as f:
-            log_content = f.read()
-            for line in log_content.split("\n"):
-                if "Forwarding HTTP traffic from" in line:
-                    link_serveo = line.split("from")[-1].strip()
-    except:
-        pass
-
-    # === IMPRIME O SEU LINK ATUALIZADO GIGANTE EM DESTAQUE NO FIM DO LOG ===
-    print("\n==========================================================")
-    print("========= SEU LINK DE TRANSMISSÃO EM TELA CHEIA =========")
-    print(f"{link_serveo}/live.m3u8")
-    print("==========================================================\n")
-
     # 6. Inicializa o navegador focado
-    from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
-        print("Ligando navegador no MODO QUIOSQUE SEM ABAS...")
+        print("Ligando navegador no modo interativo...")
         browser = p.chromium.launch(
             headless=False, 
             args=[
                 "--no-sandbox", 
                 "--disable-dev-shm-usage",
-                "--autoplay-policy=no-user-gesture-required",
-                "--kiosk",                     
-                "--fill-properties",
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--start-fullscreen"           
+                "--autoplay-policy=no-user-gesture-required"
             ]
         )
         page = browser.new_page(viewport={"width": 1280, "height": 720})
@@ -83,80 +70,18 @@ def iniciar():
         
         try:
             page.goto(url_alvo, wait_until="commit", timeout=0)
-            time.sleep(12) 
+            time.sleep(10)
             
-            print("Preparando o gatilho de tela cheia por clique legitimado...")
-            page.evaluate("""
-                document.addEventListener('click', () => {
-                    let video = document.querySelector('video');
-                    if (video) {
-                        video.requestFullscreen().catch(e => {});
-                    } else {
-                        let iframes = document.querySelectorAll('iframe');
-                        for (let i = 0; i < iframes.length; i++) {
-                            try {
-                                let innerVideo = iframes[i].contentWindow.document.querySelector('video');
-                                if (innerVideo) innerVideo.requestFullscreen().catch(e => {});
-                            } catch(e) {}
-                        }
-                    }
-                }, { once: true });
-            """)
-            time.sleep(1)
-            
-            page.mouse.move(100, 100)
-            time.sleep(0.5)
-            page.mouse.move(640, 360)
-            time.sleep(0.5)
-            
+            # Tenta dar o primeiro clique automático de segurança
             page.mouse.click(640, 360)
-            print("Clique de ativacao executado.")
-            time.sleep(2)
-            
+            print("Navegador pronto e transmitindo.")
         except Exception as e:
             print(f"Aviso inicial: {e}")
 
-        # === VIGIA INTELIGENTE DE RECONEXÃO ===
-        print("Vigia de troca de videos ativo...")
+        # Mantém a live aberta continuamente
         try:
             while True:
-                time.sleep(5) 
-                try:
-                    is_fullscreen = page.evaluate("""
-                        let mainFS = !!document.fullscreenElement;
-                        if (mainFS) return true;
-                        let iframes = document.querySelectorAll('iframe');
-                        for (let i = 0; i < iframes.length; i++) {
-                            try {
-                                if (!!iframes[i].contentWindow.document.fullscreenElement) return true;
-                            } catch(e) {}
-                        }
-                        return false;
-                    """)
-                    
-                    if not is_fullscreen:
-                        print("Troca de video ou perda de foco detectada. Reaplicando clique...")
-                        page.evaluate("""
-                            document.addEventListener('click', () => {
-                                let video = document.querySelector('video');
-                                if (video) video.requestFullscreen().catch(e => {});
-                                let iframes = document.querySelectorAll('iframe');
-                                for (let i = 0; i < iframes.length; i++) {
-                                    try {
-                                        let innerVideo = iframes[i].contentWindow.document.querySelector('video');
-                                        if (innerVideo) innerVideo.requestFullscreen().catch(e => {});
-                                    } catch(e) {}
-                                }
-                            }, { once: true });
-                        """)
-                        time.sleep(0.5)
-                        page.mouse.move(600, 300)
-                        time.sleep(0.2)
-                        page.mouse.move(640, 360)
-                        time.sleep(0.2)
-                        page.mouse.click(640, 360)
-                except:
-                    pass
+                time.sleep(60)
         except KeyboardInterrupt:
             processo_ffmpeg.terminate()
             browser.close()
