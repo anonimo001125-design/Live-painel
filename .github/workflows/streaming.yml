@@ -9,14 +9,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Instalar Dependencias do Sistema
+      - name: Instalar Dependencias do Sistema e Ngrok
         run: |
           sudo apt-get update
+          # Instala dependências de vídeo, som e o repositório oficial do Ngrok
           sudo apt-get install -y ffmpeg pulseaudio curl
+          curl -s https://amazonaws.com | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+          echo "deb https://amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt-get update
+          sudo apt-get install -y ngrok
 
-      - name: Instalar Playwright e Ngrok
+      - name: Instalar Playwright
         run: |
-          pip install playwright pyngrok
+          pip install playwright
           playwright install chromium --with-deps
 
       - name: Iniciar Transmissao e Servidor
