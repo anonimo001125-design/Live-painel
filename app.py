@@ -1,6 +1,8 @@
 import os
 import time
 import subprocess
+import json
+import urllib.request
 
 def iniciar():
     # 1. Prepara a pasta de streaming
@@ -15,10 +17,12 @@ def iniciar():
 
     # 3. Liga o túnel do Serveo
     print("Iniciando tunel de rede seguro e estavel...")
-    subprocess.Popen([
-        "ssh", "-o", "StrictHostKeyChecking=no", 
-        "-R", "80:localhost:8080", "serveo.net"
-    ])
+    # Salva os logs do túnel em um arquivo temporario para podermos ler o endereço depois
+    with open("tunnel.log", "w") as log_file:
+        subprocess.Popen([
+            "ssh", "-o", "StrictHostKeyChecking=no", 
+            "-R", "80:localhost:8080", "serveo.net"
+        ], stdout=log_file, stderr=log_file)
     time.sleep(5)
 
     # 4. Configura a tela virtual em alta definição
@@ -37,6 +41,23 @@ def iniciar():
     ]
     print("FFmpeg iniciando gravacao em alta definicao...")
     processo_ffmpeg = subprocess.Popen(ffmpeg_cmd)
+
+    # Tenta ler o link que o Serveo gerou dentro do arquivo temporário
+    link_serveo = "https://serveo.net"
+    try:
+        with open("tunnel.log", "r") as f:
+            log_content = f.read()
+            for line in log_content.split("\n"):
+                if "Forwarding HTTP traffic from" in line:
+                    link_serveo = line.split("from")[-1].strip()
+    except:
+        pass
+
+    # === IMPRIME O SEU LINK ATUALIZADO GIGANTE EM DESTAQUE NO FIM DO LOG ===
+    print("\n==========================================================")
+    print("========= SEU LINK DE TRANSMISSÃO EM TELA CHEIA =========")
+    print(f"{link_serveo}/live.m3u8")
+    print("==========================================================\n")
 
     # 6. Inicializa o navegador focado
     from playwright.sync_api import sync_playwright
@@ -62,11 +83,9 @@ def iniciar():
         
         try:
             page.goto(url_alvo, wait_until="commit", timeout=0)
-            time.sleep(12) # Aguarda o player carregar 100%
+            time.sleep(12) 
             
-            # === SIMULAÇÃO DE MOVIMENTO HUMANO + CLIQUE DE PERMISSÃO ===
             print("Preparando o gatilho de tela cheia por clique legitimado...")
-            # Injeta um escutador de clique na página. Quando o robô clicar, o navegador valida e força a tela cheia no vídeo
             page.evaluate("""
                 document.addEventListener('click', () => {
                     let video = document.querySelector('video');
@@ -85,25 +104,23 @@ def iniciar():
             """)
             time.sleep(1)
             
-            # Move o mouse simulando o rastro humano até o centro da tela
             page.mouse.move(100, 100)
             time.sleep(0.5)
             page.mouse.move(640, 360)
             time.sleep(0.5)
             
-            # EXECUTA O CLIQUE DE ATIVAÇÃO REAL!
             page.mouse.click(640, 360)
-            print("Clique humano executado. Tela cheia disparada nativamente.")
+            print("Clique de ativacao executado.")
             time.sleep(2)
             
         except Exception as e:
             print(f"Aviso inicial: {e}")
 
-        # === VIGIA INTELIGENTE DE RECONEXÃO (Para troca de vídeos) ===
+        # === VIGIA INTELIGENTE DE RECONEXÃO ===
         print("Vigia de troca de videos ativo...")
         try:
             while True:
-                time.sleep(5) # Verifica a cada 5 segundos se mudou de episódio
+                time.sleep(5) 
                 try:
                     is_fullscreen = page.evaluate("""
                         let mainFS = !!document.fullscreenElement;
@@ -146,4 +163,3 @@ def iniciar():
 
 if __name__ == "__main__":
     iniciar()
-        
