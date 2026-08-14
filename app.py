@@ -21,41 +21,41 @@ def iniciar():
     ])
     time.sleep(5)
 
-    # 4. Configura a tela virtual em alta definição para o corte funcionar perfeitamente
+    # 4. Configura a tela virtual
     os.system("Xvfb :99 -screen 0 1280x720x24 &")
     os.environ["DISPLAY"] = ":99"
     time.sleep(3) 
 
-    # 5. FFmpeg COM CORTADOR DE LENTE (CROP) ATIVADO
-    # O filtro "-vf crop=1000:562:140:100" diz para a gravação:
-    # "Corte uma janela de 1000x562 pixels, ignorando os primeiros 140 pixels da esquerda e os 100 pixels de aba do topo"
-    # Depois ele estica o resultado de volta para 1280x720 para o seu player receber em tela cheia pura!
+    # 5. FFmpeg captura a tela virtual :99.0 limpa (sem mouse)
     ffmpeg_cmd = [
         "ffmpeg", "-f", "pulse", "-i", "auto_null.monitor",
         "-f", "x11grab", "-draw_mouse", "0", "-video_size", "1280x720", "-i", ":99.0",
-        "-vf", "crop=1024:576:128:90,scale=1280:720", 
         "-c:v", "libx264", "-preset", "ultrafast", "-profile:v", "baseline", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-g", "60", "-hls_time", "2", 
         "-hls_list_size", "5", "-hls_flags", "delete_segments", 
         "stream/live.m3u8"
     ]
-    print("FFmpeg iniciando gravacao com corte de bordas e abas automático...")
+    print("FFmpeg iniciando gravacao continua...")
     processo_ffmpeg = subprocess.Popen(ffmpeg_cmd)
 
-    # 6. Inicializa o navegador padrão
+    # 6. Inicializa o navegador focado
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
-        print("Ligando navegador no modo padrão estabilizado...")
+        print("Ligando navegador no MODO QUIOSQUE SEM ABAS...")
         
         browser = p.chromium.launch(
             headless=False, 
             args=[
                 "--no-sandbox", 
                 "--disable-dev-shm-usage",
-                "--autoplay-policy=no-user-gesture-required"
+                "--autoplay-policy=no-user-gesture-required",
+                "--kiosk",                     
+                "--fill-properties",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--start-fullscreen"           
             ]
         )
-        # Abre a janela do navegador esticada no tamanho máximo do servidor
         page = browser.new_page(viewport={"width": 1280, "height": 720})
         
         url_alvo = "https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch"
@@ -63,22 +63,49 @@ def iniciar():
         
         try:
             page.goto(url_alvo, wait_until="commit", timeout=0)
-            time.sleep(12) # Tempo para o vídeo começar a rodar sozinho de fundo
+            time.sleep(12) # Tempo para o player e todas as janelas internas carregarem
             
-            # Clica no centro da tela apenas para garantir que o som e o play fiquem ativos
+            # Clique inicial para dar o foco e destravar o som
             page.mouse.click(640, 360)
-            print("Clique de ativação de áudio concluído.")
+            time.sleep(1)
+            
+            # === CHAVE MESTRA: ENTRA DENTRO DO IFRAME E FORÇA TELA CHEIA NO PLAYER REAL ===
+            print("Procurando o player dentro das janelas protegidas do site...")
+            for frame in page.frames:
+                try:
+                    # Injeta o comando de tela cheia em absolutamente todas as janelas internas que existirem na página
+                    frame.evaluate("document.documentElement.requestFullscreen()")
+                    # Se achar o botão de tela cheia padrão de vídeo dentro do frame, força o clique nele por ID ou classe
+                    frame.evaluate("document.querySelector('video').requestFullscreen()")
+                except:
+                    pass
+            
+            print("Comando de tela cheia injetado em todas as camadas internas.")
+            time.sleep(2)
+            
+            # Executa o duplo clique geral no centro para garantir o acionamento alternativo
+            page.mouse.dblclick(640, 360)
+            
         except Exception as e:
             print(f"Aviso inicial: {e}")
 
-        # === MONITOR DE RECONEXÃO CONTINUO ===
-        print("Transmissão com corte inteligente ativa...")
+        # === MONITOR DE RECONEXÃO PARA TROCA DE VÍDEO ===
+        print("Vigia de troca de videos ativo...")
         try:
             while True:
-                time.sleep(10)
+                time.sleep(60) # Modificado para 60 segundos para não sobrecarregar as trocas
                 try:
-                    # Apenas mantém o foco dando cliques caso o site troque de episódio e pause
-                    page.mouse.click(640, 360)
+                    is_fullscreen = page.evaluate("!!document.fullscreenElement")
+                    if not is_fullscreen:
+                        print("Detectada troca de video. Reaplicando a chave mestra em todas as camadas...")
+                        page.mouse.click(640, 360)
+                        for frame in page.frames:
+                            try:
+                                frame.evaluate("document.documentElement.requestFullscreen()")
+                                frame.evaluate("document.querySelector('video').requestFullscreen()")
+                            except:
+                                pass
+                        page.mouse.dblclick(640, 360)
                 except:
                     pass
         except KeyboardInterrupt:
