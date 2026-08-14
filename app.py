@@ -1,8 +1,6 @@
 import os
 import time
 import subprocess
-import json
-import urllib.request
 
 def iniciar():
     # 1. Prepara a pasta de streaming e cria o arquivo base para evitar erro 404
@@ -15,34 +13,25 @@ def iniciar():
     subprocess.Popen(["python3", "-m", "http.server", "8080", "--directory", "stream"])
     time.sleep(2)
 
-    # 3. Configura o Ngrok através do comando oficial do sistema
-    print("Configurando Ngrok Oficial...")
+    # 3. Configura o Ngrok via biblioteca Pyngrok nativa (Sem baixar nada por fora)
+    print("Configurando Ngrok via biblioteca...")
     
     # ==========================================================
     # === COLOQUE O SEU TOKEN DO NGROK ENTRE AS ASPAS ABAIXO ===
     TOKEN_NGROK = "3Hp2YbxQ2bolHAikPRlZgIA4Rtr_71CZKugfEWPTKPS9LXXJk"
     # ==========================================================
     
-    os.system(f"ngrok config add-authtoken {TOKEN_NGROK}")
-
-    # Liga o túnel do Ngrok global em segundo plano
-    subprocess.Popen(["ngrok", "http", "8080", "--log=stdout"], stdout=subprocess.DEVNULL)
-    time.sleep(5) 
-
-    # Captura o link gerado consultando a API local interna do Ngrok
-    link_publico = "https://ngrok.com"
-    try:
-        with urllib.request.urlopen("http://localhost:4040/api/tunnels") as response:
-            data = json.loads(response.read().decode())
-            # Pega a URL pública gerada
-            link_publico = data['tunnels'][0]['public_url']
-    except Exception as e:
-        print(f"Aviso ao ler API do Ngrok: {e}")
+    from pyngrok import ngrok
+    ngrok.set_auth_token(TOKEN_NGROK)
+    
+    # Conecta o túnel diretamente na porta 8080 do servidor
+    url_publica = ngrok.connect(8080).public_url
+    time.sleep(3)
 
     # === SEU LINK PRONTO APARECERÁ BEM AQUI EM DESTAQUE ===
     print("\n==========================================================")
     print("========= SEU LINK DE TRANSMISSÃO EM TELA CHEIA =========")
-    print(f"{link_publico}/live.m3u8")
+    print(f"{url_publica}/live.m3u8")
     print("==========================================================\n")
 
     # 4. Configura a tela virtual em alta definição
