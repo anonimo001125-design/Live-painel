@@ -15,7 +15,6 @@ def iniciar():
 
     # 3. Liga a ponte de internet oficial do sistema (Sem Ngrok, sem travas)
     print("Iniciando tunel de rede seguro e estavel...")
-    # Executa o comando SSH nativo que cria o link público apontando para a porta 8080
     subprocess.Popen([
         "ssh", "-o", "StrictHostKeyChecking=no", "-o", "ServerAliveInterval=60",
         "-R", "80:localhost:8080", "nokey@localhost.run"
@@ -68,9 +67,12 @@ def iniciar():
         
         try:
             page.goto(url_alvo, wait_until="commit", timeout=0)
-            time.sleep(12) 
             
-            # Escutador nativo que destrava a tela cheia legítima através do clique simulado
+            # === SUA SOLICITAÇÃO: AGUARDA INICIAR E DÁ O TOQUE NO MEIO ===
+            print("Aguardando 15 segundos para a transmissao estabilizar...")
+            time.sleep(15) 
+            
+            # Injeta o escutador de cliques nativo do navegador
             page.evaluate("""
                 document.addEventListener('click', () => {
                     let video = document.querySelector('video');
@@ -89,13 +91,14 @@ def iniciar():
             """)
             time.sleep(1)
             
-            # Movimentação e clique simulado para validar a tela cheia do player
+            # Executa o movimento simulado e o clique físico de ativacao no meio exato da tela (640, 360)
+            print("Dando o toque no meio da tela pós-inicio para destravar a tela cheia...")
             page.mouse.move(100, 100)
             time.sleep(0.5)
             page.mouse.move(640, 360)
             time.sleep(0.5)
             page.mouse.click(640, 360)
-            print("Clique de ativação executado.")
+            print("Toque executado com sucesso.")
             time.sleep(2)
             
         except Exception as e:
@@ -120,6 +123,7 @@ def iniciar():
                     """)
                     
                     if not is_fullscreen:
+                        print("Troca de video ou perda de tela cheia detectada. Reaplicando o toque...")
                         page.evaluate("""
                             document.addEventListener('click', () => {
                                 let video = document.querySelector('video');
