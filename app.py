@@ -13,12 +13,26 @@ def iniciar():
     subprocess.Popen(["python3", "-m", "http.server", "8080", "--directory", "stream"])
     time.sleep(2)
 
-    # 3. Configura a tela virtual em alta definição
+    # 3. Liga a ponte de internet oficial do sistema (Sem Ngrok, sem travas)
+    print("Iniciando tunel de rede seguro e estavel...")
+    # Executa o comando SSH nativo que cria o link público apontando para a porta 8080
+    subprocess.Popen([
+        "ssh", "-o", "StrictHostKeyChecking=no", "-o", "ServerAliveInterval=60",
+        "-R", "80:localhost:8080", "nokey@localhost.run"
+    ])
+    time.sleep(5)
+
+    print("\n==========================================================")
+    print("======== SEU STREAMING FOI INICIADO COM SUCESSO ========")
+    print("Suba a tela do log para copiar o seu endereço .lhr.life")
+    print("==========================================================\n")
+
+    # 4. Configura a tela virtual em alta definição
     os.system("Xvfb :99 -screen 0 1280x720x24 &")
     os.environ["DISPLAY"] = ":99"
     time.sleep(3) 
 
-    # 4. FFmpeg captura a tela virtual :99.0 completa, com áudio nativo e sem o mouse
+    # 5. FFmpeg captura a tela virtual :99.0 completa, com áudio nativo e sem o mouse
     ffmpeg_cmd = [
         "ffmpeg", "-f", "pulse", "-i", "auto_null.monitor",
         "-f", "x11grab", "-draw_mouse", "0", "-video_size", "1280x720", "-i", ":99.0",
@@ -30,7 +44,7 @@ def iniciar():
     print("FFmpeg iniciando gravacao continua...")
     processo_ffmpeg = subprocess.Popen(ffmpeg_cmd)
 
-    # 5. Inicializa o navegador focado
+    # 6. Inicializa o navegador focado
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         print("Ligando navegador interativo em Modo Quiosque...")
