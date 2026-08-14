@@ -1,32 +1,55 @@
 import os
 import time
 import subprocess
+import json
+import urllib.request
 
 def iniciar():
-    # 1. Prepara a pasta de streaming
+    # 1. Prepara a pasta de streaming e cria o arquivo base para evitar erro 404
     os.makedirs("stream", exist_ok=True)
     with open("stream/live.m3u8", "w") as f:
         f.write("#EXTM3U\n")
 
-    # 2. Inicia o servidor HTTP em segundo plano
+    # 2. Inicia o servidor HTTP em segundo plano imediatamente
     print("Iniciando servidor HTTP na porta 8080...")
     subprocess.Popen(["python3", "-m", "http.server", "8080", "--directory", "stream"])
     time.sleep(2)
 
-    # 3. Liga o túnel do Serveo
-    print("Iniciando tunel de rede seguro e estavel...")
-    subprocess.Popen([
-        "ssh", "-o", "StrictHostKeyChecking=no", 
-        "-R", "80:localhost:8080", "serveo.net"
-    ])
-    time.sleep(5)
+    # 3. Baixa e configura o Ngrok Oficial direto pelo sistema
+    print("Configurando Ngrok Oficial...")
+    os.system("curl -s -O https://equinox.io")
+    os.system("tar -xzf ngrok-stable-linux-amd64.tgz")
+    os.system("chmod +x ngrok")
 
-    # 4. Configura a tela virtual
+    # === COLOQUE O SEU TOKEN DO NGROK ENTRE AS ASPAS ABAIXO ===
+    TOKEN_NGROK = "SEU_TOKEN_AQUI"
+    os.system(f"./ngrok config add-authtoken {TOKEN_NGROK}")
+
+    # Liga o túnel do Ngrok em segundo plano apontando para o nosso servidor na porta 8080
+    subprocess.Popen(["./ngrok", "http", "8080", "--log=stdout"], stdout=subprocess.DEVNULL)
+    time.sleep(5) # Tempo para o Ngrok conectar nos servidores deles
+
+    # Captura o link gerado consultando a API local interna do Ngrok
+    link_publico = "https://ngrok.com"
+    try:
+        with urllib.request.urlopen("http://localhost:4040/api/tunnels") as response:
+            data = json.loads(response.read().decode())
+            link_publico = data['tunnels'][0]['public_url']
+    except Exception as e:
+        print(f"Aviso ao ler API do Ngrok: {e}")
+
+    # === SEU LINK PRONTO APARECERÁ BEM AQUI EM DESTAQUE ===
+    print("\n==========================================================")
+    print("========= SEU LINK DE TRANSMISSÃO EM TELA CHEIA =========")
+    print(f"{link_publico}/live.m3u8")
+    print("==========================================================\n")
+
+    # 4. Configura a tela virtual em alta definição
     os.system("Xvfb :99 -screen 0 1280x720x24 &")
     os.environ["DISPLAY"] = ":99"
     time.sleep(3) 
 
-    # 5. FFmpeg captura a tela virtual :99.0 limpa (sem mouse)
+    # 5. FFmpeg captura a tela virtual :99.0 completa e sem o mouse
     ffmpeg_cmd = [
         "ffmpeg", "-f", "pulse", "-i", "auto_null.monitor",
         "-f", "x11grab", "-draw_mouse", "0", "-video_size", "1280x720", "-i", ":99.0",
@@ -41,8 +64,7 @@ def iniciar():
     # 6. Inicializa o navegador focado
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
-        print("Ligando navegador no MODO QUIOSQUE SEM ABAS...")
-        
+        print("Ligando navegador interativo...")
         browser = p.chromium.launch(
             headless=False, 
             args=[
@@ -53,7 +75,7 @@ def iniciar():
                 "--fill-properties",
                 "--no-first-run",
                 "--no-default-browser-check",
-                "--start-fullscreen"           
+                "--start-fullscreen"  
             ]
         )
         page = browser.new_page(viewport={"width": 1280, "height": 720})
@@ -63,49 +85,75 @@ def iniciar():
         
         try:
             page.goto(url_alvo, wait_until="commit", timeout=0)
-            time.sleep(12) # Tempo para o player e todas as janelas internas carregarem
+            time.sleep(12) 
             
-            # Clique inicial para dar o foco e destravar o som
-            page.mouse.click(640, 360)
+            # Escutador nativo que destrava a tela cheia através do clique
+            page.evaluate("""
+                document.addEventListener('click', () => {
+                    let video = document.querySelector('video');
+                    if (video) {
+                        video.requestFullscreen().catch(e => {});
+                    } else {
+                        let iframes = document.querySelectorAll('iframe');
+                        for (let i = 0; i < iframes.length; i++) {
+                            try {
+                                let innerVideo = iframes[i].contentWindow.document.querySelector('video');
+                                if (innerVideo) innerVideo.requestFullscreen().catch(e => {});
+                            } catch(e) {}
+                        }
+                    }
+                }, { once: true });
+            """)
             time.sleep(1)
             
-            # === CHAVE MESTRA: ENTRA DENTRO DO IFRAME E FORÇA TELA CHEIA NO PLAYER REAL ===
-            print("Procurando o player dentro das janelas protegidas do site...")
-            for frame in page.frames:
-                try:
-                    # Injeta o comando de tela cheia em absolutamente todas as janelas internas que existirem na página
-                    frame.evaluate("document.documentElement.requestFullscreen()")
-                    # Se achar o botão de tela cheia padrão de vídeo dentro do frame, força o clique nele por ID ou classe
-                    frame.evaluate("document.querySelector('video').requestFullscreen()")
-                except:
-                    pass
-            
-            print("Comando de tela cheia injetado em todas as camadas internas.")
+            # Movimentação e clique simulado para validar a tela cheia
+            page.mouse.move(100, 100)
+            time.sleep(0.5)
+            page.mouse.move(640, 360)
+            time.sleep(0.5)
+            page.mouse.click(640, 360)
+            print("Clique executado.")
             time.sleep(2)
-            
-            # Executa o duplo clique geral no centro para garantir o acionamento alternativo
-            page.mouse.dblclick(640, 360)
             
         except Exception as e:
             print(f"Aviso inicial: {e}")
 
-        # === MONITOR DE RECONEXÃO PARA TROCA DE VÍDEO ===
+        # === VIGIA INTELIGENTE DE RECONEXÃO ===
         print("Vigia de troca de videos ativo...")
         try:
             while True:
-                time.sleep(60) # Modificado para 60 segundos para não sobrecarregar as trocas
+                time.sleep(5)
                 try:
-                    is_fullscreen = page.evaluate("!!document.fullscreenElement")
+                    is_fullscreen = page.evaluate("""
+                        let mainFS = !!document.fullscreenElement;
+                        if (mainFS) return true;
+                        let iframes = document.querySelectorAll('iframe');
+                        for (let i = 0; i < iframes.length; i++) {
+                            try {
+                                if (!!iframes[i].contentWindow.document.fullscreenElement) return true;
+                            } catch(e) {}
+                        }
+                        return false;
+                    """)
+                    
                     if not is_fullscreen:
-                        print("Detectada troca de video. Reaplicando a chave mestra em todas as camadas...")
+                        page.evaluate("""
+                            document.addEventListener('click', () => {
+                                let video = document.querySelector('video');
+                                if (video) video.requestFullscreen().catch(e => {});
+                                let iframes = document.querySelectorAll('iframe');
+                                for (let i = 0; i < iframes.length; i++) {
+                                    try {
+                                        let innerVideo = iframes[i].contentWindow.document.querySelector('video');
+                                        if (innerVideo) innerVideo.requestFullscreen().catch(e => {});
+                                    } catch(e) {}
+                                }
+                            }, { once: true });
+                        """)
+                        time.sleep(0.5)
+                        page.mouse.move(640, 360)
+                        time.sleep(0.2)
                         page.mouse.click(640, 360)
-                        for frame in page.frames:
-                            try:
-                                frame.evaluate("document.documentElement.requestFullscreen()")
-                                frame.evaluate("document.querySelector('video').requestFullscreen()")
-                            except:
-                                pass
-                        page.mouse.dblclick(640, 360)
                 except:
                     pass
         except KeyboardInterrupt:
