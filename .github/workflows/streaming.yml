@@ -12,7 +12,8 @@ jobs:
       - name: Instalar Som e Video do Sistema
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg pulseaudio xvfb
+          # xdotool adicionado para emular cliques de hardware reais
+          sudo apt-get install -y ffmpeg pulseaudio xvfb xdotool
 
       - name: Instalar Gravador Playwright
         run: |
