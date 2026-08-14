@@ -3,7 +3,7 @@ import time
 import subprocess
 
 def iniciar():
-    # 1. Prepara a pasta de streaming e cria o arquivo base para evitar erro 404
+    # 1. Prepara a pasta de streaming
     os.makedirs("stream", exist_ok=True)
     with open("stream/live.m3u8", "w") as f:
         f.write("#EXTM3U\n")
@@ -13,7 +13,7 @@ def iniciar():
     subprocess.Popen(["python3", "-m", "http.server", "8080", "--directory", "stream"])
     time.sleep(2)
 
-    # 3. Liga a ponte de internet oficial do sistema (Sem Ngrok, sem travas)
+    # 3. Liga a ponte de internet oficial do sistema
     print("Iniciando tunel de rede seguro e estavel...")
     subprocess.Popen([
         "ssh", "-o", "StrictHostKeyChecking=no", "-o", "ServerAliveInterval=60",
@@ -21,17 +21,12 @@ def iniciar():
     ])
     time.sleep(5)
 
-    print("\n==========================================================")
-    print("======== SEU STREAMING FOI INICIADO COM SUCESSO ========")
-    print("Suba a tela do log para copiar o seu endereço .lhr.life")
-    print("==========================================================\n")
-
     # 4. Configura a tela virtual em alta definição
     os.system("Xvfb :99 -screen 0 1280x720x24 &")
     os.environ["DISPLAY"] = ":99"
     time.sleep(3) 
 
-    # 5. FFmpeg captura a tela virtual :99.0 completa, com áudio nativo e sem o mouse
+    # 5. FFmpeg captura a tela virtual :99.0 limpa (sem mouse)
     ffmpeg_cmd = [
         "ffmpeg", "-f", "pulse", "-i", "auto_null.monitor",
         "-f", "x11grab", "-draw_mouse", "0", "-video_size", "1280x720", "-i", ":99.0",
@@ -67,59 +62,41 @@ def iniciar():
         
         try:
             page.goto(url_alvo, wait_until="commit", timeout=0)
-            print("Aguardando carregamento inicial da página...")
+            print("Aguardando o site carregar e o streaming estabilizar...")
             time.sleep(15) 
             
-            # === DESTRAVADOR DE PROTEÇÃO DE CLIQUE NATIVO ===
-            # Cria um botão invisível gigante por cima do site inteiro para capturar o toque
-            print("Injetando destravador de cliques nativo...")
+            # Injeta o escutador de cliques nativo na página
             page.evaluate("""
-                const btn = document.createElement('div');
-                btn.id = 'destravador-fullscreen';
-                btn.style.position = 'fixed';
-                btn.style.top = '0';
-                btn.style.left = '0';
-                btn.style.width = '100vw';
-                btn.style.height = '100vh';
-                btn.style.zIndex = '9999999';
-                btn.style.background = 'transparent';
-                btn.style.cursor = 'pointer';
-                
-                // Quando o robô encostar aqui, o próprio navegador valida e arromba a tela cheia
-                btn.addEventListener('click', () => {
+                document.addEventListener('click', () => {
                     let video = document.querySelector('video');
                     if (video) {
-                        video.requestFullscreen().then(() => {
-                            btn.remove(); // Remove o botão invisível após o sucesso
-                        }).catch(e => {});
+                        video.requestFullscreen().catch(e => {});
                     } else {
                         let iframes = document.querySelectorAll('iframe');
                         for (let i = 0; i < iframes.length; i++) {
                             try {
                                 let innerVideo = iframes[i].contentWindow.document.querySelector('video');
-                                if (innerVideo) {
-                                    innerVideo.requestFullscreen().then(() => {
-                                        btn.remove();
-                                    }).catch(e => {});
-                                }
+                                if (innerVideo) innerVideo.requestFullscreen().catch(e => {});
                             } catch(e) {}
                         }
                     }
-                });
-                document.body.appendChild(btn);
+                }, { once: true });
             """)
-            time.sleep(2)
+            time.sleep(1)
             
-            # Força o clique físico na tela virtual para acionar o botão invisível
-            print("Disparando toque físico legítimo no destravador...")
-            page.mouse.click(640, 360)
-            print("Toque executado.")
+            # === CLIQUE DE HARDWARE ULTRA FORÇADO VIA SISTEMA OPERACIONAL ===
+            # Usa o xdotool para mover o mouse físico do Linux e clicar de verdade no centro (640, 360)
+            print("Desferindo clique físico forçado via hardware do sistema...")
+            os.system("xdotool mousemove --display :99 640 360")
+            time.sleep(0.5)
+            os.system("xdotool click --display :99 1") # Dá o clique real
+            print("Clique forçado executado. Verificando tela cheia...")
             time.sleep(2)
             
         except Exception as e:
             print(f"Aviso inicial: {e}")
 
-        # === VIGIA INTELIGENTE DE RECONEXÃO ===
+        # === VIGIA DE RECONEXÃO COM CLIQUE DE HARDWARE ===
         print("Vigia de troca de videos ativo...")
         try:
             while True:
@@ -138,30 +115,24 @@ def iniciar():
                     """)
                     
                     if not is_fullscreen:
-                        print("Troca de video ou perda de tela cheia detectada. Re-injetando destravador...")
+                        print("Troca de video ou pausa detectada. Re-aplicando clique de hardware...")
                         page.evaluate("""
-                            if (!document.getElementById('destravador-fullscreen')) {
-                                const btn = document.createElement('div');
-                                btn.id = 'destravador-fullscreen';
-                                btn.style.position = 'fixed'; btn.style.top = '0'; btn.style.left = '0';
-                                btn.style.width = '100vw'; btn.style.height = '100vh'; btn.style.zIndex = '9999999';
-                                btn.style.background = 'transparent';
-                                btn.addEventListener('click', () => {
-                                    let video = document.querySelector('video');
-                                    if (video) video.requestFullscreen().then(() => btn.remove()).catch(e => {});
-                                    let iframes = document.querySelectorAll('iframe');
-                                    for (let i = 0; i < iframes.length; i++) {
-                                        try {
-                                            let innerVideo = iframes[i].contentWindow.document.querySelector('video');
-                                            if (innerVideo) innerVideo.requestFullscreen().then(() => btn.remove()).catch(e => {});
-                                        } catch(e) {}
-                                    }
-                                });
-                                document.body.appendChild(btn);
-                            }
+                            document.addEventListener('click', () => {
+                                let video = document.querySelector('video');
+                                if (video) video.requestFullscreen().catch(e => {});
+                                let iframes = document.querySelectorAll('iframe');
+                                for (let i = 0; i < iframes.length; i++) {
+                                    try {
+                                        let innerVideo = iframes[i].contentWindow.document.querySelector('video');
+                                        if (innerVideo) innerVideo.requestFullscreen().catch(e => {});
+                                    } catch(e => {});
+                                }
+                            }, { once: true });
                         """)
-                        time.sleep(1)
-                        page.mouse.click(640, 360)
+                        time.sleep(0.5)
+                        os.system("xdotool mousemove --display :99 640 360")
+                        time.sleep(0.2)
+                        os.system("xdotool click --display :99 1")
                 except:
                     pass
         except KeyboardInterrupt:
