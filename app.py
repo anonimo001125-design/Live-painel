@@ -13,33 +13,12 @@ def iniciar():
     subprocess.Popen(["python3", "-m", "http.server", "8080", "--directory", "stream"])
     time.sleep(2)
 
-    # 3. Configura o Ngrok via biblioteca Pyngrok nativa (Sem baixar nada por fora)
-    print("Configurando Ngrok via biblioteca...")
-    
-    # ==========================================================
-    # === COLOQUE O SEU TOKEN DO NGROK ENTRE AS ASPAS ABAIXO ===
-    TOKEN_NGROK = "3Hp2YbxQ2bolHAikPRlZgIA4Rtr_71CZKugfEWPTKPS9LXXJk"
-    # ==========================================================
-    
-    from pyngrok import ngrok
-    ngrok.set_auth_token(TOKEN_NGROK)
-    
-    # Conecta o túnel diretamente na porta 8080 do servidor
-    url_publica = ngrok.connect(8080).public_url
-    time.sleep(3)
-
-    # === SEU LINK PRONTO APARECERÁ BEM AQUI EM DESTAQUE ===
-    print("\n==========================================================")
-    print("========= SEU LINK DE TRANSMISSÃO EM TELA CHEIA =========")
-    print(f"{url_publica}/live.m3u8")
-    print("==========================================================\n")
-
-    # 4. Configura a tela virtual em alta definição
+    # 3. Configura a tela virtual em alta definição
     os.system("Xvfb :99 -screen 0 1280x720x24 &")
     os.environ["DISPLAY"] = ":99"
     time.sleep(3) 
 
-    # 5. FFmpeg captura a tela virtual :99.0 completa e sem o mouse
+    # 4. FFmpeg captura a tela virtual :99.0 completa, com áudio nativo e sem o mouse
     ffmpeg_cmd = [
         "ffmpeg", "-f", "pulse", "-i", "auto_null.monitor",
         "-f", "x11grab", "-draw_mouse", "0", "-video_size", "1280x720", "-i", ":99.0",
@@ -51,10 +30,10 @@ def iniciar():
     print("FFmpeg iniciando gravacao continua...")
     processo_ffmpeg = subprocess.Popen(ffmpeg_cmd)
 
-    # 6. Inicializa o navegador focado
+    # 5. Inicializa o navegador focado
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
-        print("Ligando navegador interativo...")
+        print("Ligando navegador interativo em Modo Quiosque...")
         browser = p.chromium.launch(
             headless=False, 
             args=[
@@ -77,7 +56,7 @@ def iniciar():
             page.goto(url_alvo, wait_until="commit", timeout=0)
             time.sleep(12) 
             
-            # Escutador nativo que destrava a tela cheia através do clique
+            # Escutador nativo que destrava a tela cheia legítima através do clique simulado
             page.evaluate("""
                 document.addEventListener('click', () => {
                     let video = document.querySelector('video');
@@ -96,7 +75,7 @@ def iniciar():
             """)
             time.sleep(1)
             
-            # Movimentação e clique simulado para validar a tela cheia legítima
+            # Movimentação e clique simulado para validar a tela cheia do player
             page.mouse.move(100, 100)
             time.sleep(0.5)
             page.mouse.move(640, 360)
@@ -127,7 +106,6 @@ def iniciar():
                     """)
                     
                     if not is_fullscreen:
-                        print("Troca de video detectada. Forçando clique humano novamente...")
                         page.evaluate("""
                             document.addEventListener('click', () => {
                                 let video = document.querySelector('video');
