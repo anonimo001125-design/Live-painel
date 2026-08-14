@@ -9,18 +9,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Instalar Dependencias do Sistema
+      - name: Instalar Som e Video do Sistema
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg pulseaudio curl
+          sudo apt-get install -y ffmpeg pulseaudio xvfb
 
-      - name: Instalar Playwright e Bibliotecas
+      - name: Configurar o Ngrok Oficial
+        uses: ngrok/actions-ngrok@v1
+        with:
+          # === COLOQUE O SEU TOKEN DO NGROK NO LUGAR DO TEXTO ABAIXO ===
+          ngrok_authtoken: "3Hp2YbxQ2bolHAikPRlZgIA4Rtr_71CZKugfEWPTKPS9LXXJk"
+          port: 8080
+
+      - name: Instalar Gravador Playwright
         run: |
-          pip install playwright pyngrok
+          pip install playwright
           playwright install chromium --with-deps
 
       - name: Iniciar Transmissao e Servidor
         run: |
           mkdir -p stream
           pulseaudio -D --exit-idle-time=-1 --system=false && python app.py
-          
