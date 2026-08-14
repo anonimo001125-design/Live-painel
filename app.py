@@ -20,7 +20,7 @@ def iniciar():
     
     # ==========================================================
     # === COLOQUE O SEU TOKEN DO NGROK ENTRE AS ASPAS ABAIXO ===
-    TOKEN_NGROK = "SEU_TOKEN_AQUI"
+    TOKEN_NGROK = "3Hp2YbxQ2bolHAikPRlZgIA4Rtr_71CZKugfEWPTKPS9LXXJk"
     # ==========================================================
     
     os.system(f"ngrok config add-authtoken {TOKEN_NGROK}")
