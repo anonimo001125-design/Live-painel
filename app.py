@@ -67,38 +67,53 @@ def iniciar():
         
         try:
             page.goto(url_alvo, wait_until="commit", timeout=0)
-            
-            # === SUA SOLICITAÇÃO: AGUARDA INICIAR E DÁ O TOQUE NO MEIO ===
-            print("Aguardando 15 segundos para a transmissao estabilizar...")
+            print("Aguardando carregamento inicial da página...")
             time.sleep(15) 
             
-            # Injeta o escutador de cliques nativo do navegador
+            # === DESTRAVADOR DE PROTEÇÃO DE CLIQUE NATIVO ===
+            # Cria um botão invisível gigante por cima do site inteiro para capturar o toque
+            print("Injetando destravador de cliques nativo...")
             page.evaluate("""
-                document.addEventListener('click', () => {
+                const btn = document.createElement('div');
+                btn.id = 'destravador-fullscreen';
+                btn.style.position = 'fixed';
+                btn.style.top = '0';
+                btn.style.left = '0';
+                btn.style.width = '100vw';
+                btn.style.height = '100vh';
+                btn.style.zIndex = '9999999';
+                btn.style.background = 'transparent';
+                btn.style.cursor = 'pointer';
+                
+                // Quando o robô encostar aqui, o próprio navegador valida e arromba a tela cheia
+                btn.addEventListener('click', () => {
                     let video = document.querySelector('video');
                     if (video) {
-                        video.requestFullscreen().catch(e => {});
+                        video.requestFullscreen().then(() => {
+                            btn.remove(); // Remove o botão invisível após o sucesso
+                        }).catch(e => {});
                     } else {
                         let iframes = document.querySelectorAll('iframe');
                         for (let i = 0; i < iframes.length; i++) {
                             try {
                                 let innerVideo = iframes[i].contentWindow.document.querySelector('video');
-                                if (innerVideo) innerVideo.requestFullscreen().catch(e => {});
+                                if (innerVideo) {
+                                    innerVideo.requestFullscreen().then(() => {
+                                        btn.remove();
+                                    }).catch(e => {});
+                                }
                             } catch(e) {}
                         }
                     }
-                }, { once: true });
+                });
+                document.body.appendChild(btn);
             """)
-            time.sleep(1)
+            time.sleep(2)
             
-            # Executa o movimento simulado e o clique físico de ativacao no meio exato da tela (640, 360)
-            print("Dando o toque no meio da tela pós-inicio para destravar a tela cheia...")
-            page.mouse.move(100, 100)
-            time.sleep(0.5)
-            page.mouse.move(640, 360)
-            time.sleep(0.5)
+            # Força o clique físico na tela virtual para acionar o botão invisível
+            print("Disparando toque físico legítimo no destravador...")
             page.mouse.click(640, 360)
-            print("Toque executado com sucesso.")
+            print("Toque executado.")
             time.sleep(2)
             
         except Exception as e:
@@ -123,23 +138,29 @@ def iniciar():
                     """)
                     
                     if not is_fullscreen:
-                        print("Troca de video ou perda de tela cheia detectada. Reaplicando o toque...")
+                        print("Troca de video ou perda de tela cheia detectada. Re-injetando destravador...")
                         page.evaluate("""
-                            document.addEventListener('click', () => {
-                                let video = document.querySelector('video');
-                                if (video) video.requestFullscreen().catch(e => {});
-                                let iframes = document.querySelectorAll('iframe');
-                                for (let i = 0; i < iframes.length; i++) {
-                                    try {
-                                        let innerVideo = iframes[i].contentWindow.document.querySelector('video');
-                                        if (innerVideo) innerVideo.requestFullscreen().catch(e => {});
-                                    } catch(e) {}
-                                }
-                            }, { once: true });
+                            if (!document.getElementById('destravador-fullscreen')) {
+                                const btn = document.createElement('div');
+                                btn.id = 'destravador-fullscreen';
+                                btn.style.position = 'fixed'; btn.style.top = '0'; btn.style.left = '0';
+                                btn.style.width = '100vw'; btn.style.height = '100vh'; btn.style.zIndex = '9999999';
+                                btn.style.background = 'transparent';
+                                btn.addEventListener('click', () => {
+                                    let video = document.querySelector('video');
+                                    if (video) video.requestFullscreen().then(() => btn.remove()).catch(e => {});
+                                    let iframes = document.querySelectorAll('iframe');
+                                    for (let i = 0; i < iframes.length; i++) {
+                                        try {
+                                            let innerVideo = iframes[i].contentWindow.document.querySelector('video');
+                                            if (innerVideo) innerVideo.requestFullscreen().then(() => btn.remove()).catch(e => {});
+                                        } catch(e) {}
+                                    }
+                                });
+                                document.body.appendChild(btn);
+                            }
                         """)
-                        time.sleep(0.5)
-                        page.mouse.move(640, 360)
-                        time.sleep(0.2)
+                        time.sleep(1)
                         page.mouse.click(640, 360)
                 except:
                     pass
