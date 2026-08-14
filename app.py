@@ -15,25 +15,26 @@ def iniciar():
     subprocess.Popen(["python3", "-m", "http.server", "8080", "--directory", "stream"])
     time.sleep(2)
 
-    # 3. Baixa e configura o Ngrok Oficial direto pelo sistema
+    # 3. Configura o Ngrok através do comando oficial do sistema
     print("Configurando Ngrok Oficial...")
-    os.system("curl -s -O https://equinox.io")
-    os.system("tar -xzf ngrok-stable-linux-amd64.tgz")
-    os.system("chmod +x ngrok")
-
+    
+    # ==========================================================
     # === COLOQUE O SEU TOKEN DO NGROK ENTRE AS ASPAS ABAIXO ===
     TOKEN_NGROK = "SEU_TOKEN_AQUI"
-    os.system(f"./ngrok config add-authtoken {TOKEN_NGROK}")
+    # ==========================================================
+    
+    os.system(f"ngrok config add-authtoken {TOKEN_NGROK}")
 
-    # Liga o túnel do Ngrok em segundo plano apontando para o nosso servidor na porta 8080
-    subprocess.Popen(["./ngrok", "http", "8080", "--log=stdout"], stdout=subprocess.DEVNULL)
-    time.sleep(5) # Tempo para o Ngrok conectar nos servidores deles
+    # Liga o túnel do Ngrok global em segundo plano
+    subprocess.Popen(["ngrok", "http", "8080", "--log=stdout"], stdout=subprocess.DEVNULL)
+    time.sleep(5) 
 
     # Captura o link gerado consultando a API local interna do Ngrok
     link_publico = "https://ngrok.com"
     try:
         with urllib.request.urlopen("http://localhost:4040/api/tunnels") as response:
             data = json.loads(response.read().decode())
+            # Pega a URL pública gerada
             link_publico = data['tunnels'][0]['public_url']
     except Exception as e:
         print(f"Aviso ao ler API do Ngrok: {e}")
@@ -106,13 +107,13 @@ def iniciar():
             """)
             time.sleep(1)
             
-            # Movimentação e clique simulado para validar a tela cheia
+            # Movimentação e clique simulado para validar a tela cheia legítima
             page.mouse.move(100, 100)
             time.sleep(0.5)
             page.mouse.move(640, 360)
             time.sleep(0.5)
             page.mouse.click(640, 360)
-            print("Clique executado.")
+            print("Clique de ativação executado.")
             time.sleep(2)
             
         except Exception as e:
@@ -137,6 +138,7 @@ def iniciar():
                     """)
                     
                     if not is_fullscreen:
+                        print("Troca de video detectada. Forçando clique humano novamente...")
                         page.evaluate("""
                             document.addEventListener('click', () => {
                                 let video = document.querySelector('video');
