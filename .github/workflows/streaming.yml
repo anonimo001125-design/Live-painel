@@ -5,7 +5,6 @@ on:
 
 jobs:
   run-stream:
-
     runs-on: ubuntu-24.04
 
     timeout-minutes: 350
@@ -31,7 +30,7 @@ jobs:
             libatk-bridge2.0-0 \
             libgtk-3-0 \
             libgbm1 \
-            libasound2 \
+            libasound2t64 \
             openssh-client
 
       - name: Instalar Python
