@@ -1,9 +1,10 @@
 import os
 import time
 import subprocess
+import asyncio
 
 def iniciar():
-    # 1. Prepara a pasta de streaming e cria o arquivo base para evitar erro 404
+    # 1. Prepara a pasta de streaming e o arquivo m3u8 inicial
     os.makedirs("stream", exist_ok=True)
     with open("stream/live.m3u8", "w") as f:
         f.write("#EXTM3U\n")
@@ -13,7 +14,7 @@ def iniciar():
     subprocess.Popen(["python3", "-m", "http.server", "8080", "--directory", "stream"])
     time.sleep(2)
 
-    # 3. Liga a ponte de internet oficial do sistema (.lhr.life)
+    # 3. Liga a ponte de internet estável do sistema (.lhr.life)
     print("Iniciando tunel de rede seguro e estavel...")
     subprocess.Popen([
         "ssh", "-o", "StrictHostKeyChecking=no", "-o", "ServerAliveInterval=60",
@@ -26,33 +27,75 @@ def iniciar():
     print("Suba a tela do log para copiar o seu endereço .lhr.life")
     print("==========================================================\n")
 
-    # URL do site que você quer transmitir
-    url_site = "https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch"
-    
-    print("Pescando o sinal de video oculto do site...")
-    # Chama o yt-dlp instalado pelo ambiente Python de forma direta
-    try:
-        url_real_video = subprocess.check_output(["python3", "-m", "yt_dlp", "-g", url_site]).decode().strip()
-        print("Sinal de video encontrado com sucesso!")
-    except Exception as e:
-        print(f"Aviso no extrator: {e}. Usando URL padrão por segurança.")
-        url_real_video = url_site
+    # 4. Configura a tela virtual em alta definição
+    os.system("Xvfb :99 -screen 0 1280x720x24 &")
+    os.environ["DISPLAY"] = ":99"
+    time.sleep(3) 
 
-    # 4. CAPTURA DO SINAL DIRECTO (Sem Navegador / Sem Travas / Tela Cheia Perfeita)
+    # 5. FFmpeg captura a tela virtual :99.0 completa, com áudio nativo e SEM MOUSE
     ffmpeg_cmd = [
-        "ffmpeg", "-re", "-i", url_real_video,
-        "-c:v", "copy", "-c:a", "copy", 
-        "-hls_time", "2", "-hls_list_size", "5", "-hls_flags", "delete_segments", 
+        "ffmpeg", "-f", "pulse", "-i", "auto_null.monitor",
+        "-f", "x11grab", "-draw_mouse", "0", "-video_size", "1280x720", "-i", ":99.0",
+        "-c:v", "libx264", "-preset", "ultrafast", "-profile:v", "baseline", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-g", "60", "-hls_time", "2", 
+        "-hls_list_size", "5", "-hls_flags", "delete_segments", 
         "stream/live.m3u8"
     ]
-    
-    print("FFmpeg transmitindo o fluxo de video direto em alta qualidade...")
+    print("FFmpeg iniciando gravacao continua em alta definicao...")
     processo_ffmpeg = subprocess.Popen(ffmpeg_cmd)
 
-    # Mantém o script vivo trabalhando sem travar
-    try:
+    # 6. Inicializa o navegador leve via Pyppeteer rodando direto na tela virtual
+    print("Instalando motor do navegador leve...")
+    os.system("pip install pyppeteer")
+    
+    from pyppeteer import launch
+    async def abrir_navegador():
+        print("Ligando navegador ultra leve em modo Quiosque...")
+        browser = await launch(
+            headless=False,
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--autoplay-policy=no-user-gesture-required",
+                "--kiosk",
+                "--start-fullscreen"
+            ]
+        )
+        page = await browser.newPage()
+        await page.setViewport({"width": 1280, "height": 720})
+        
+        url_alvo = "https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch"
+        print(f"Acessando o site: {url_alvo}")
+        
+        try:
+            await page.goto(url_alvo, timeout=0)
+            print("Site conectado de fundo. Aguardando estabilizacao...")
+            await asyncio.sleep(12)
+            
+            # === SIMULAÇÃO DE HARDWARE INDERRUBÁVEL ===
+            # Usa o xdotool para dar um duplo clique real de mouse no centro da tela.
+            # Isso quebra a segurança do player do site e ativa a tela cheia nativa do vídeo!
+            print("Desferindo duplo clique físico no centro para forçar a tela cheia...")
+            os.system("xdotool mousemove --display :99 640 360")
+            await asyncio.sleep(0.5)
+            os.system("xdotool dblclick --display :99 1")
+            print("Comando de tela cheia enviado com sucesso.")
+            
+        except Exception as e:
+            print(f"Aviso no navegador: {e}")
+
+        # Mantém a sessão ativa de forma contínua vigiando o player
         while True:
-            time.sleep(60)
+            await asyncio.sleep(5)
+            # Se o site mudar de vídeo e sair da tela cheia, o emulador de mouse dá o duplo clique de novo
+            is_fullscreen = await page.evaluate("!!document.fullscreenElement")
+            if not is_fullscreen:
+                os.system("xdotool mousemove --display :99 640 360")
+                os.system("xdotool dblclick --display :99 1")
+
+    # Dispara a execução do loop assíncrono do navegador
+    try:
+        asyncio.get_event_loop().run_until_complete(abrir_navegador())
     except KeyboardInterrupt:
         processo_ffmpeg.terminate()
 
