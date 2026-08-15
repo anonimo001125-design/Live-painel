@@ -2,6 +2,7 @@ import os
 import time
 import subprocess
 import asyncio
+from pyppeteer import launch
 
 def iniciar():
     # 1. Prepara a pasta de streaming e o arquivo m3u8 inicial
@@ -44,11 +45,7 @@ def iniciar():
     print("FFmpeg iniciando gravacao continua em alta definicao...")
     processo_ffmpeg = subprocess.Popen(ffmpeg_cmd)
 
-    # 6. Inicializa o navegador leve via Pyppeteer rodando direto na tela virtual
-    print("Instalando motor do navegador leve...")
-    os.system("pip install pyppeteer")
-    
-    from pyppeteer import launch
+    # 6. Executa o navegador leve via Pyppeteer rodando na tela virtual
     async def abrir_navegador():
         print("Ligando navegador ultra leve em modo Quiosque...")
         browser = await launch(
@@ -73,8 +70,6 @@ def iniciar():
             await asyncio.sleep(12)
             
             # === SIMULAÇÃO DE HARDWARE INDERRUBÁVEL ===
-            # Usa o xdotool para dar um duplo clique real de mouse no centro da tela.
-            # Isso quebra a segurança do player do site e ativa a tela cheia nativa do vídeo!
             print("Desferindo duplo clique físico no centro para forçar a tela cheia...")
             os.system("xdotool mousemove --display :99 640 360")
             await asyncio.sleep(0.5)
@@ -87,11 +82,13 @@ def iniciar():
         # Mantém a sessão ativa de forma contínua vigiando o player
         while True:
             await asyncio.sleep(5)
-            # Se o site mudar de vídeo e sair da tela cheia, o emulador de mouse dá o duplo clique de novo
-            is_fullscreen = await page.evaluate("!!document.fullscreenElement")
-            if not is_fullscreen:
-                os.system("xdotool mousemove --display :99 640 360")
-                os.system("xdotool dblclick --display :99 1")
+            try:
+                is_fullscreen = await page.evaluate("!!document.fullscreenElement")
+                if not is_fullscreen:
+                    os.system("xdotool mousemove --display :99 640 360")
+                    os.system("xdotool dblclick --display :99 1")
+            except:
+                pass
 
     # Dispara a execução do loop assíncrono do navegador
     try:
