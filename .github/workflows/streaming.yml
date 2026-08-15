@@ -6,13 +6,15 @@ on:
 jobs:
   run-stream:
     runs-on: ubuntu-24.04
+
     timeout-minutes: 350
 
     steps:
+
       - name: Baixar código
         uses: actions/checkout@v4
 
-      - name: Instalar dependências
+      - name: Instalar sistema
         run: |
           sudo apt-get update
 
@@ -24,7 +26,7 @@ jobs:
             chromium \
             openssh-client
 
-      - name: Instalar Python
+      - name: Instalar Pyppeteer
         run: |
           python3 -m pip install --upgrade pip
           pip install pyppeteer
