@@ -24,21 +24,30 @@ def iniciar():
     print("Suba a tela do log para copiar o seu endereço .lhr.life")
     print("==========================================================\n")
 
-    # 4. CAPTURA DIRETA DE FONTE (Sem Navegador / Sem Travas / Tela Cheia Nativa)
-    # Mudamos o link para a origem do sinal de vídeo que o site consome de fundo
-    url_fonte_video = "https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch"
+    # URL do site que você quer transmitir
+    url_site = "https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch"
     
+    print("Pescando o sinal de video oculto do site...")
+    # O yt-dlp descobre o link m3u8 escondido do player do site em 2 segundos
+    try:
+        url_real_video = subprocess.check_output(["yt-dlp", "-g", url_site]).decode().strip()
+        print("Sinal de video encontrado com sucesso!")
+    except:
+        # Caso o site use um formato padrao, joga a URL direta como segurança
+        url_real_video = url_site
+
+    # 4. CAPTURA DO SINAL DIRECTO (Sem Navegador / Sem Travas / Tela Cheia Perfeita)
     ffmpeg_cmd = [
-        "ffmpeg", "-re", "-i", url_fonte_video,
+        "ffmpeg", "-re", "-i", url_real_video,
         "-c:v", "copy", "-c:a", "copy", 
         "-hls_time", "2", "-hls_list_size", "5", "-hls_flags", "delete_segments", 
         "stream/live.m3u8"
     ]
     
-    print("FFmpeg conectando direto na fonte do streaming...")
+    print("FFmpeg transmitindo o fluxo de video direto em alta qualidade...")
     processo_ffmpeg = subprocess.Popen(ffmpeg_cmd)
 
-    # Mantém o script principal vivo repassando o sinal sem parar por horas
+    # Mantém o script vivo trabalhando sem travar
     try:
         while True:
             time.sleep(60)
