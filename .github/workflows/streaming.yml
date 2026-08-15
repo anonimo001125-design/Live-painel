@@ -9,14 +9,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Instalar Dependencias do Sistema
+      - name: Instalar Sistema de Som, Video e Navegador Oficial
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg pulseaudio xvfb xdotool
+          # Instala o navegador Chromium direto no Linux de forma estavel
+          sudo apt-get install -y ffmpeg pulseaudio xvfb xdotool chromium-browser
 
-      - name: Instalar Navegador Pyppeteer
+      - name: Instalar Conectores do Python
         run: |
-          # Instala o motor leve do navegador direto no sistema do GitHub
           pip install pyppeteer
 
       - name: Iniciar Transmissao e Servidor
