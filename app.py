@@ -8,34 +8,36 @@ import sys
 from playwright.sync_api import sync_playwright
 
 
-# ============================================================
+# ==========================================================
 # CONFIGURAÇÃO
-# ============================================================
+# ==========================================================
 
 TOKEN_NGROK = "3Hp2YbxQ2bolHAikPRlZgIA4Rtr_71CZKugfEWPTKPS9LXXJk"
 
-# SUA PÁGINA /watch
 URL_ALVO = "https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch"
+
+DISPLAY = ":99"
 
 WIDTH = 1280
 HEIGHT = 720
 FPS = 30
 
-DISPLAY = ":99"
 PORTA = 8080
 PASTA_STREAM = "stream"
 
 processos = []
 
 
-# ============================================================
-# ENCERRAMENTO
-# ============================================================
+# ==========================================================
+# ENCERRAR
+# ==========================================================
 
 def encerrar(sig=None, frame=None):
+
     print("[MAIN] Encerrando...", flush=True)
 
     for p in processos:
+
         try:
             if p.poll() is None:
                 p.terminate()
@@ -45,6 +47,7 @@ def encerrar(sig=None, frame=None):
     time.sleep(2)
 
     for p in processos:
+
         try:
             if p.poll() is None:
                 p.kill()
@@ -58,35 +61,43 @@ signal.signal(signal.SIGTERM, encerrar)
 signal.signal(signal.SIGINT, encerrar)
 
 
-# ============================================================
-# LIMPAR STREAM
-# ============================================================
+# ==========================================================
+# LIMPAR
+# ==========================================================
 
-def limpar_stream():
+def limpar():
 
-    os.makedirs(PASTA_STREAM, exist_ok=True)
+    os.makedirs(
+        PASTA_STREAM,
+        exist_ok=True
+    )
 
-    for arquivo in os.listdir(PASTA_STREAM):
+    for nome in os.listdir(PASTA_STREAM):
 
         caminho = os.path.join(
             PASTA_STREAM,
-            arquivo
+            nome
         )
 
         try:
+
             if os.path.isfile(caminho):
                 os.remove(caminho)
+
         except:
             pass
 
 
-# ============================================================
+# ==========================================================
 # XVFB
-# ============================================================
+# ==========================================================
 
 def iniciar_xvfb():
 
-    print("[X11] Iniciando Xvfb...", flush=True)
+    print(
+        "[X11] Iniciando Xvfb...",
+        flush=True
+    )
 
     os.environ["DISPLAY"] = DISPLAY
 
@@ -106,28 +117,38 @@ def iniciar_xvfb():
     time.sleep(3)
 
     if xvfb.poll() is not None:
-        raise RuntimeError("Xvfb não iniciou.")
+
+        raise RuntimeError(
+            "Xvfb não iniciou."
+        )
 
     print(
-        f"[X11] DISPLAY={DISPLAY} OK",
+        "[X11] DISPLAY",
+        DISPLAY,
+        "OK",
         flush=True
     )
 
 
-# ============================================================
-# PULSEAUDIO
-# ============================================================
+# ==========================================================
+# AUDIO
+# ==========================================================
 
 def iniciar_audio():
 
-    print("[AUDIO] Iniciando PulseAudio...", flush=True)
+    print(
+        "[AUDIO] Iniciando...",
+        flush=True
+    )
 
     os.makedirs(
         "/tmp/pulse",
         exist_ok=True
     )
 
-    os.environ["PULSE_RUNTIME_PATH"] = "/tmp/pulse"
+    os.environ[
+        "PULSE_RUNTIME_PATH"
+    ] = "/tmp/pulse"
 
     subprocess.run(
         [
@@ -140,7 +161,7 @@ def iniciar_audio():
 
     time.sleep(3)
 
-    resultado = subprocess.run(
+    sinks = subprocess.run(
         [
             "pactl",
             "list",
@@ -151,7 +172,7 @@ def iniciar_audio():
         text=True
     )
 
-    if "webtv" not in resultado.stdout:
+    if "webtv" not in sinks.stdout:
 
         subprocess.run(
             [
@@ -173,11 +194,13 @@ def iniciar_audio():
         check=False
     )
 
-    os.environ["PULSE_SINK"] = "webtv"
+    os.environ[
+        "PULSE_SINK"
+    ] = "webtv"
 
     time.sleep(2)
 
-    fontes = subprocess.run(
+    sources = subprocess.run(
         [
             "pactl",
             "list",
@@ -189,26 +212,33 @@ def iniciar_audio():
     )
 
     print(
-        "[AUDIO] Fontes:",
-        fontes.stdout,
+        "[AUDIO] Sources:",
+        sources.stdout,
         flush=True
     )
 
-    if "webtv.monitor" not in fontes.stdout:
+    if "webtv.monitor" not in sources.stdout:
+
         raise RuntimeError(
-            "webtv.monitor não foi criado."
+            "webtv.monitor não existe."
         )
 
-    print("[AUDIO] Áudio OK.", flush=True)
+    print(
+        "[AUDIO] OK",
+        flush=True
+    )
 
 
-# ============================================================
-# SERVIDOR HLS
-# ============================================================
+# ==========================================================
+# HTTP
+# ==========================================================
 
-def iniciar_servidor():
+def iniciar_http():
 
-    print("[HTTP] Iniciando servidor...", flush=True)
+    print(
+        "[HTTP] Iniciando servidor...",
+        flush=True
+    )
 
     servidor = subprocess.Popen([
         "python3",
@@ -224,103 +254,114 @@ def iniciar_servidor():
     time.sleep(2)
 
 
-# ============================================================
+# ==========================================================
 # NGROK
-# ============================================================
+# ==========================================================
 
 def iniciar_ngrok():
 
-    print("[NGROK] Iniciando...", flush=True)
-
     from pyngrok import ngrok
 
-    ngrok.set_auth_token(TOKEN_NGROK)
+    print(
+        "[NGROK] Iniciando...",
+        flush=True
+    )
 
-    url = ngrok.connect(PORTA).public_url
+    ngrok.set_auth_token(
+        TOKEN_NGROK
+    )
+
+    url = ngrok.connect(
+        PORTA
+    ).public_url
 
     print("")
-    print("====================================================")
-    print("              TRANSMISSÃO WEB TV")
-    print("====================================================")
-    print("URL:", url)
-    print("HLS:", url + "/live.m3u8")
-    print("====================================================")
+    print(
+        "=========================================================="
+    )
+    print(
+        "WEB TV"
+    )
+    print(
+        "=========================================================="
+    )
+    print(
+        "LINK HLS:"
+    )
+    print(
+        url + "/live.m3u8"
+    )
+    print(
+        "=========================================================="
+    )
     print("")
 
 
-# ============================================================
-# DIAGNÓSTICO DOS VÍDEOS
-# ============================================================
+# ==========================================================
+# TESTAR VÍDEOS
+# ==========================================================
 
-def diagnosticar(page):
+def diagnostico(page):
 
     try:
 
         dados = page.evaluate("""
         () => {
 
-            return [...document.querySelectorAll("video")]
-                .map((v, i) => ({
+            const videos =
+                [...document.querySelectorAll("video")];
 
-                    index: i,
+            return videos.map((video, index) => ({
 
-                    src:
-                        v.getAttribute("src"),
+                index: index,
 
-                    currentSrc:
-                        v.currentSrc,
+                src:
+                    video.getAttribute("src"),
 
-                    paused:
-                        v.paused,
+                currentSrc:
+                    video.currentSrc,
 
-                    ended:
-                        v.ended,
+                paused:
+                    video.paused,
 
-                    muted:
-                        v.muted,
+                readyState:
+                    video.readyState,
 
-                    readyState:
-                        v.readyState,
+                networkState:
+                    video.networkState,
 
-                    networkState:
-                        v.networkState,
+                currentTime:
+                    video.currentTime,
 
-                    currentTime:
-                        v.currentTime,
+                duration:
+                    Number.isFinite(video.duration)
+                    ? video.duration
+                    : null,
 
-                    duration:
-                        Number.isFinite(v.duration)
-                            ? v.duration
-                            : null,
+                width:
+                    video.videoWidth,
 
-                    width:
-                        v.videoWidth,
+                height:
+                    video.videoHeight,
 
-                    height:
-                        v.videoHeight,
+                muted:
+                    video.muted,
 
-                    error:
-                        v.error
-                        ? {
-                            code: v.error.code,
-                            message: v.error.message
-                          }
-                        : null,
+                error:
+                    video.error
+                    ? {
+                        code: video.error.code,
+                        message: video.error.message
+                    }
+                    : null
 
-                    sources:
-                        [...v.querySelectorAll("source")]
-                        .map(s => ({
-                            src: s.src,
-                            type: s.type
-                        }))
-
-                }));
+            }));
 
         }
         """)
 
         print(
-            "[VIDEO] DIAGNÓSTICO:",
+            "[VIDEO]",
             dados,
             flush=True
         )
@@ -338,84 +379,11 @@ def diagnosticar(page):
         return []
 
 
-# ============================================================
-# TENTAR RECARREGAR PLAYER
-# ============================================================
+# ==========================================================
+# PLAY
+# ==========================================================
 
-def recarregar_player(page):
-
-    print(
-        "[PLAYER] Procurando botão de recarregar...",
-        flush=True
-    )
-
-    seletores = [
-        "button",
-        "[role='button']",
-        "text=RECARREGAR PLAYER",
-        "text=Recarregar player",
-        "text=RECARREGAR",
-        "text=Recarregar"
-    ]
-
-    for seletor in seletores:
-
-        try:
-
-            elementos = page.locator(seletor)
-
-            quantidade = elementos.count()
-
-            for i in range(quantidade):
-
-                elemento = elementos.nth(i)
-
-                try:
-
-                    texto = elemento.inner_text(
-                        timeout=1000
-                    )
-
-                except:
-
-                    texto = ""
-
-                if (
-                    "RECARREGAR" in texto.upper()
-                    or
-                    "RECARREGAR PLAYER" in texto.upper()
-                ):
-
-                    print(
-                        "[PLAYER] Botão encontrado:",
-                        texto,
-                        flush=True
-                    )
-
-                    elemento.click(
-                        timeout=5000
-                    )
-
-                    time.sleep(5)
-
-                    return True
-
-        except:
-            pass
-
-    print(
-        "[PLAYER] Botão não encontrado.",
-        flush=True
-    )
-
-    return False
-
-
-# ============================================================
-# FORÇAR PLAY
-# ============================================================
-
-def reproduzir(page):
+def tentar_play(page):
 
     print(
         "[PLAYER] Tentando reproduzir...",
@@ -430,7 +398,7 @@ def reproduzir(page):
             const videos =
                 [...document.querySelectorAll("video")];
 
-            const resultado = [];
+            const saida = [];
 
             for (
                 let i = 0;
@@ -446,68 +414,63 @@ def reproduzir(page):
                     v.playsInline = true;
 
                     /*
-                     * Primeiro tenta com áudio.
+                     * Primeiro tenta normalmente.
                      */
+
                     try {
 
-                        v.muted = false;
+                        const promessa = v.play();
 
-                        const p = v.play();
-
-                        if (p)
-                            await p;
+                        if (promessa)
+                            await promessa;
 
                     } catch {
 
                         /*
-                         * Se autoplay com áudio for bloqueado,
-                         * tenta silencioso.
+                         * Segunda tentativa sem áudio.
                          */
 
                         v.muted = true;
 
-                        const p = v.play();
+                        const promessa = v.play();
 
-                        if (p)
-                            await p;
+                        if (promessa)
+                            await promessa;
                     }
 
-                    resultado.push({
-
+                    saida.push({
                         index: i,
-                        ok: true,
-                        src: v.currentSrc,
+                        sucesso: true,
+                        currentSrc: v.currentSrc,
                         paused: v.paused,
                         readyState: v.readyState,
                         currentTime: v.currentTime,
                         width: v.videoWidth,
                         height: v.videoHeight
-
                     });
 
                 } catch (e) {
 
-                    resultado.push({
-
+                    saida.push({
                         index: i,
-                        ok: false,
+                        sucesso: false,
                         erro: String(e),
-                        src: v.currentSrc,
+                        currentSrc: v.currentSrc,
                         readyState: v.readyState,
                         width: v.videoWidth,
                         height: v.videoHeight
-
                     });
 
                 }
+
             }
 
-            return resultado;
+            return saida;
         }
         """)
 
         print(
-            "[PLAYER] Resultado:",
+            "[PLAYER]",
             resultado,
             flush=True
         )
@@ -521,42 +484,83 @@ def reproduzir(page):
         )
 
 
-# ============================================================
+# ==========================================================
 # NAVEGADOR
-# ============================================================
+# ==========================================================
 
 def iniciar_navegador():
 
-    print("[CHROMIUM] Iniciando...", flush=True)
+    print(
+        "[BROWSER] Iniciando Chromium do sistema...",
+        flush=True
+    )
+
+    # ------------------------------------------------------
+    # IMPORTANTE:
+    # usamos o Chromium instalado pelo apt.
+    # ------------------------------------------------------
+
+    chromium = "/usr/bin/chromium"
+
+    if not os.path.exists(chromium):
+
+        raise RuntimeError(
+            "Chromium não encontrado em /usr/bin/chromium"
+        )
+
+    print(
+        "[BROWSER] Executável:",
+        chromium,
+        flush=True
+    )
 
     with sync_playwright() as p:
 
         browser = p.chromium.launch(
+
+            executable_path=chromium,
 
             headless=False,
 
             args=[
 
                 "--no-sandbox",
+
                 "--disable-setuid-sandbox",
+
                 "--disable-dev-shm-usage",
+
+                "--disable-gpu",
+
+                "--use-gl=swiftshader",
 
                 "--autoplay-policy=no-user-gesture-required",
 
                 "--start-fullscreen",
-                "--kiosk",
 
                 "--window-size=1280,720",
+
                 "--window-position=0,0",
 
                 "--force-device-scale-factor=1",
 
+                "--disable-background-timer-throttling",
+
+                "--disable-backgrounding-occluded-windows",
+
+                "--disable-renderer-backgrounding",
+
                 "--no-first-run",
+
                 "--no-default-browser-check",
 
                 "--disable-notifications",
 
-                "--disable-popup-blocking"
+                "--disable-popup-blocking",
+
+                "--disable-features=Translate",
+
+                "--lang=pt-BR"
             ]
         )
 
@@ -583,15 +587,15 @@ def iniciar_navegador():
 
         page = context.new_page()
 
-        # ----------------------------------------------------
+        # --------------------------------------------------
         # CONSOLE
-        # ----------------------------------------------------
+        # --------------------------------------------------
 
         page.on(
             "console",
             lambda msg:
             print(
-                "[BROWSER]",
+                "[CONSOLE]",
                 msg.text,
                 flush=True
             )
@@ -599,96 +603,86 @@ def iniciar_navegador():
 
         page.on(
             "pageerror",
-            lambda err:
+            lambda error:
             print(
-                "[BROWSER ERROR]",
-                err,
+                "[PAGE ERROR]",
+                error,
                 flush=True
             )
         )
 
-        # ----------------------------------------------------
-        # REQUISIÇÕES
-        # ----------------------------------------------------
-
-        def request(req):
-
-            if req.resource_type in [
-                "media",
-                "xhr",
-                "fetch"
-            ]:
-
-                print(
-                    "[REQUEST]",
-                    req.resource_type,
-                    req.method,
-                    req.url,
-                    flush=True
-                )
+        # --------------------------------------------------
+        # REQUISIÇÕES DE VÍDEO
+        # --------------------------------------------------
 
         page.on(
             "request",
-            request
-        )
-
-        # ----------------------------------------------------
-        # RESPOSTAS
-        # ----------------------------------------------------
-
-        def response(resp):
-
-            if resp.request.resource_type in [
+            lambda request:
+            print(
+                "[REQUEST]",
+                request.resource_type,
+                request.url,
+                flush=True
+            )
+            if request.resource_type in [
                 "media",
                 "xhr",
                 "fetch"
-            ]:
+            ]
+            else None
+        )
 
-                print(
-                    "[RESPONSE]",
-                    resp.status,
-                    resp.request.resource_type,
-                    resp.url,
-                    flush=True
-                )
+        # --------------------------------------------------
+        # RESPOSTAS
+        # --------------------------------------------------
 
         page.on(
             "response",
-            response
-        )
-
-        # ----------------------------------------------------
-        # ERROS DE REDE
-        # ----------------------------------------------------
-
-        def failed(req):
-
-            if req.resource_type in [
+            lambda response:
+            print(
+                "[RESPONSE]",
+                response.status,
+                response.request.resource_type,
+                response.url,
+                flush=True
+            )
+            if response.request.resource_type in [
                 "media",
                 "xhr",
                 "fetch"
-            ]:
+            ]
+            else None
+        )
 
-                print(
-                    "[REQUEST FAILED]",
-                    req.resource_type,
-                    req.url,
-                    "=>",
-                    req.failure,
-                    flush=True
-                )
+        # --------------------------------------------------
+        # FALHAS
+        # --------------------------------------------------
 
         page.on(
             "requestfailed",
-            failed
+            lambda request:
+            print(
+                "[REQUEST FAILED]",
+                request.resource_type,
+                request.url,
+                "=>",
+                request.failure,
+                flush=True
+            )
+            if request.resource_type in [
+                "media",
+                "xhr",
+                "fetch"
+            ]
+            else None
         )
 
-        # ----------------------------------------------------
-        # ABRIR SITE
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # ABRIR
+        # --------------------------------------------------
 
         print(
-            "[CHROMIUM] Abrindo:",
+            "[BROWSER] Abrindo:",
             URL_ALVO,
             flush=True
         )
@@ -704,33 +698,33 @@ def iniciar_navegador():
         except Exception as e:
 
             print(
-                "[CHROMIUM] Erro:",
+                "[BROWSER] Erro ao abrir:",
                 e,
                 flush=True
             )
 
         print(
-            "[CHROMIUM] URL:",
+            "[BROWSER] URL:",
             page.url,
             flush=True
         )
 
         print(
-            "[CHROMIUM] Aguardando player...",
+            "[BROWSER] Aguardando aplicação...",
             flush=True
         )
 
-        time.sleep(10)
+        time.sleep(15)
 
-        # ----------------------------------------------------
-        # DIAGNÓSTICO
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # PRIMEIRO DIAGNÓSTICO
+        # --------------------------------------------------
 
-        diagnosticar(page)
+        diagnostico(page)
 
-        # ----------------------------------------------------
-        # CLICAR NO PLAYER
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # CLIQUE
+        # --------------------------------------------------
 
         try:
 
@@ -744,146 +738,103 @@ def iniciar_navegador():
 
         time.sleep(2)
 
-        # ----------------------------------------------------
-        # RECARREGAR PLAYER
-        # ----------------------------------------------------
+        # --------------------------------------------------
+        # PROCURAR RECARREGAR PLAYER
+        # --------------------------------------------------
 
-        recarregar_player(page)
+        try:
 
-        time.sleep(3)
+            botoes = page.get_by_role(
+                "button"
+            )
 
-        # ----------------------------------------------------
+            quantidade = botoes.count()
+
+            for i in range(quantidade):
+
+                try:
+
+                    texto = botoes.nth(i).inner_text()
+
+                    if (
+                        "RECARREGAR" in
+                        texto.upper()
+                    ):
+
+                        print(
+                            "[PLAYER] Clicando:",
+                            texto,
+                            flush=True
+                        )
+
+                        botoes.nth(i).click()
+
+                        time.sleep(8)
+
+                        break
+
+                except:
+                    pass
+
+        except:
+            pass
+
+        # --------------------------------------------------
         # PLAY
-        # ----------------------------------------------------
+        # --------------------------------------------------
 
-        reproduzir(page)
+        tentar_play(page)
 
         time.sleep(5)
 
-        # ----------------------------------------------------
-        # SEGUNDA TENTATIVA
-        # ----------------------------------------------------
+        diagnostico(page)
 
-        dados = diagnosticar(page)
-
-        precisa_retry = False
-
-        for video in dados:
-
-            if (
-                video.get("readyState", 0) == 0
-                or
-                video.get("width", 0) == 0
-            ):
-
-                precisa_retry = True
-
-        if precisa_retry:
-
-            print(
-                "[PLAYER] Vídeo ainda não carregou.",
-                flush=True
-            )
-
-            print(
-                "[PLAYER] Tentando recarregar página...",
-                flush=True
-            )
-
-            try:
-
-                page.reload(
-                    wait_until="domcontentloaded",
-                    timeout=120000
-                )
-
-            except Exception as e:
-
-                print(
-                    "[PLAYER] Reload:",
-                    e,
-                    flush=True
-                )
-
-            time.sleep(10)
-
-            recarregar_player(page)
-
-            time.sleep(3)
-
-            reproduzir(page)
-
-            time.sleep(5)
-
-            diagnosticar(page)
-
-        # ----------------------------------------------------
+        # --------------------------------------------------
         # SCREENSHOT
-        # ----------------------------------------------------
+        # --------------------------------------------------
 
         try:
 
             page.screenshot(
-                path=os.path.join(
-                    PASTA_STREAM,
-                    "browser_debug.png"
-                )
+                path=
+                f"{PASTA_STREAM}/browser_debug.png"
             )
 
-            print(
-                "[CHROMIUM] Screenshot salvo.",
-                flush=True
-            )
+        except:
+            pass
 
-        except Exception as e:
-
-            print(
-                "[CHROMIUM] Screenshot:",
-                e,
-                flush=True
-            )
-
-        # ----------------------------------------------------
+        # --------------------------------------------------
         # FICAR ABERTO
-        # ----------------------------------------------------
+        # --------------------------------------------------
 
         while True:
 
-            time.sleep(30)
+            time.sleep(20)
 
-            try:
-
-                dados = diagnosticar(page)
-
-                print(
-                    "[CHROMIUM] Página:",
-                    page.url,
-                    flush=True
-                )
-
-            except Exception as e:
-
-                print(
-                    "[CHROMIUM] Monitor:",
-                    e,
-                    flush=True
-                )
+            diagnostico(page)
 
 
-# ============================================================
+# ==========================================================
 # FFMPEG
-# ============================================================
+# ==========================================================
 
 def iniciar_ffmpeg():
 
-    print("[FFMPEG] Iniciando captura...", flush=True)
+    print(
+        "[FFMPEG] Iniciando...",
+        flush=True
+    )
 
     comando = [
 
         "ffmpeg",
+
         "-y",
 
-        # VÍDEO
+        # --------------------------------------------------
+        # X11
+        # --------------------------------------------------
+
         "-f",
         "x11grab",
 
@@ -899,14 +850,20 @@ def iniciar_ffmpeg():
         "-i",
         f"{DISPLAY}.0",
 
+        # --------------------------------------------------
         # ÁUDIO
+        # --------------------------------------------------
+
         "-f",
         "pulse",
 
         "-i",
         "webtv.monitor",
 
-        # CODEC
+        # --------------------------------------------------
+        # VÍDEO
+        # --------------------------------------------------
+
         "-c:v",
         "libx264",
 
@@ -931,6 +888,10 @@ def iniciar_ffmpeg():
         "-sc_threshold",
         "0",
 
+        # --------------------------------------------------
+        # ÁUDIO
+        # --------------------------------------------------
+
         "-c:a",
         "aac",
 
@@ -943,7 +904,10 @@ def iniciar_ffmpeg():
         "-ac",
         "2",
 
+        # --------------------------------------------------
         # HLS
+        # --------------------------------------------------
+
         "-f",
         "hls",
 
@@ -978,7 +942,7 @@ def iniciar_ffmpeg():
 
     processos.append(ffmpeg)
 
-    def log():
+    def mostrar():
 
         for linha in iter(
             ffmpeg.stdout.readline,
@@ -993,7 +957,7 @@ def iniciar_ffmpeg():
                 )
 
     threading.Thread(
-        target=log,
+        target=mostrar,
         daemon=True
     ).start()
 
@@ -1002,67 +966,74 @@ def iniciar_ffmpeg():
     if ffmpeg.poll() is not None:
 
         raise RuntimeError(
-            "FFmpeg encerrou."
+            "FFmpeg parou."
         )
 
     print(
-        "[FFMPEG] Transmissão ativa.",
+        "[FFMPEG] OK.",
         flush=True
     )
 
 
-# ============================================================
+# ==========================================================
 # MAIN
-# ============================================================
+# ==========================================================
 
 def iniciar():
 
     print("")
-    print("====================================================")
-    print("                 WEB TV STREAM")
-    print("====================================================")
+    print(
+        "=========================================================="
+    )
+    print(
+        "              WEB TV - STREAM"
+    )
+    print(
+        "=========================================================="
+    )
 
-    limpar_stream()
+    limpar()
 
     iniciar_xvfb()
 
     iniciar_audio()
 
-    iniciar_servidor()
+    iniciar_http()
 
     iniciar_ngrok()
 
-    # --------------------------------------------------------
-    # PRIMEIRO navegador
-    # --------------------------------------------------------
-
-    navegador = threading.Thread(
+    # navegador primeiro
+    thread = threading.Thread(
         target=iniciar_navegador,
         daemon=True
     )
 
-    navegador.start()
+    thread.start()
 
     print(
-        "[MAIN] Aguardando navegador carregar...",
+        "[MAIN] Esperando navegador...",
         flush=True
     )
 
     time.sleep(30)
 
-    # --------------------------------------------------------
-    # DEPOIS captura
-    # --------------------------------------------------------
-
+    # captura depois
     iniciar_ffmpeg()
 
     print("")
-    print("====================================================")
-    print("              TRANSMISSÃO INICIADA")
-    print("====================================================")
+    print(
+        "=========================================================="
+    )
+    print(
+        "              TRANSMISSÃO INICIADA"
+    )
+    print(
+        "=========================================================="
+    )
     print("")
 
     while True:
+
         time.sleep(30)
 
 
