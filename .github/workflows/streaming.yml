@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
 
 jobs:
+
   run-stream:
 
     runs-on: ubuntu-24.04
@@ -12,77 +13,110 @@ jobs:
 
     steps:
 
+      # ======================================================
+      # BAIXAR CÓDIGO
+      # ======================================================
+
       - name: Baixar código
         uses: actions/checkout@v4
 
-      - name: Instalar dependências
+
+      # ======================================================
+      # INSTALAR SISTEMA
+      # ======================================================
+
+      - name: Instalar sistema
         run: |
+
           sudo apt-get update
 
           sudo apt-get install -y \
             ffmpeg \
             pulseaudio \
+            pulseaudio-utils \
             xvfb \
+            xdotool \
             chromium \
-            python3-pip \
-            curl
+            openssh-client
 
-      - name: Instalar ngrok
+
+      # ======================================================
+      # PYPPETEER
+      # ======================================================
+
+      - name: Instalar Pyppeteer
         run: |
-          curl -sSL \
-            https://ngrok-agent.s3.amazonaws.com/ngrok.asc \
-            | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
 
-          echo \
-            "deb https://ngrok-agent.s3.amazonaws.com bookworm main" \
-            | sudo tee /etc/apt/sources.list.d/ngrok.list
+          python3 -m pip install --upgrade pip
 
-          sudo apt-get update
+          pip install pyppeteer
 
-          sudo apt-get install -y ngrok
 
-          ngrok version
+      # ======================================================
+      # VERIFICAR INSTALAÇÕES
+      # ======================================================
 
-      - name: Instalar Python
+      - name: Verificar sistema
         run: |
-          python3 -m pip install --upgrade pip --break-system-packages
 
-          pip install \
-            playwright \
-            --break-system-packages
+          echo "=========================================="
+          echo "FFMPEG"
+          echo "=========================================="
 
-      - name: Instalar navegador Playwright
-        run: |
-          playwright install chromium
+          ffmpeg -version
 
-      - name: Configurar ngrok
-        env:
-          NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
-        run: |
-          if [ -z "$NGROK_AUTHTOKEN" ]; then
-            echo "NGROK_AUTHTOKEN não configurado"
-            exit 1
-          fi
+          echo "=========================================="
+          echo "CHROMIUM"
+          echo "=========================================="
 
-      - name: Verificar código
-        run: |
-          echo "=== PROCURANDO PYNGROK ==="
+          chromium --version
 
-          if grep -Rni "pyngrok" app.py; then
-            echo "ERRO: pyngrok ainda existe no app.py"
-            exit 1
-          fi
+          echo "=========================================="
+          echo "PULSEAUDIO"
+          echo "=========================================="
 
-          if grep -Rni "ngrok.connect" app.py; then
-            echo "ERRO: ngrok.connect ainda existe no app.py"
-            exit 1
-          fi
+          pulseaudio --version
 
-          echo "OK: app.py não usa pyngrok"
+          echo "=========================================="
+          echo "PYTHON"
+          echo "=========================================="
+
+          python3 --version
+
+
+      # ======================================================
+      # INICIAR TRANSMISSÃO
+      # ======================================================
 
       - name: Iniciar transmissão
+
         env:
-          NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
-          PYTHONUNBUFFERED: "1"
+
+          PYPPETEER_NO_CHROMIUM_DOWNLOAD: "1"
+
+          DISPLAY: ":99"
+
+          PULSE_SINK: "webtv"
+
         run: |
+
           python3 app.py
+
+
+      # ======================================================
+      # SALVAR DIAGNÓSTICOS
+      # ======================================================
+
+      - name: Salvar diagnósticos
+
+        if: always()
+
+        uses: actions/upload-artifact@v4
+
+        with:
+
+          name: webtv-debug
+
+          path: stream/
+
+          if-no-files-found: ignore
