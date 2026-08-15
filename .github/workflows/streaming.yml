@@ -9,19 +9,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Instalar Som e Video do Sistema
+      - name: Instalar Ferramentas de Video
         run: |
           sudo apt-get update
-          # xdotool adicionado para emular cliques de hardware reais
-          sudo apt-get install -y ffmpeg pulseaudio xvfb xdotool
-
-      - name: Instalar Gravador Playwright
-        run: |
-          pip install playwright
-          playwright install chromium --with-deps
+          sudo apt-get install -y ffmpeg curl
+          # Instala o extrator inteligente de video oficial
+          sudo curl -L https://github.com -o /usr/local/bin/yt-dlp
+          sudo chmod a+rx /usr/local/bin/yt-dlp
 
       - name: Iniciar Transmissao e Servidor
         run: |
           mkdir -p stream
-          pulseaudio -D --exit-idle-time=-1 --system=false && python app.py
+          python app.py
           
