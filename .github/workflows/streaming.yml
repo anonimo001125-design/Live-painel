@@ -4,35 +4,105 @@ on:
   workflow_dispatch:
 
 jobs:
+
   run-stream:
+
     runs-on: ubuntu-24.04
 
     timeout-minutes: 350
 
     steps:
 
+      # ======================================================
+      # BAIXAR CÓDIGO
+      # ======================================================
+
       - name: Baixar código
         uses: actions/checkout@v4
 
+
+      # ======================================================
+      # INSTALAR SISTEMA
+      # ======================================================
+
       - name: Instalar sistema
         run: |
+
           sudo apt-get update
 
           sudo apt-get install -y \
             ffmpeg \
             pulseaudio \
+            pulseaudio-utils \
             xvfb \
             xdotool \
             chromium \
             openssh-client
 
+
+      # ======================================================
+      # PYTHON / PYPPETEER
+      # ======================================================
+
       - name: Instalar Pyppeteer
         run: |
+
           python3 -m pip install --upgrade pip
+
           pip install pyppeteer
 
-      - name: Iniciar transmissão
-        env:
-          PYPPETEER_NO_CHROMIUM_DOWNLOAD: "1"
+
+      # ======================================================
+      # VERIFICAR FFMPEG
+      # ======================================================
+
+      - name: Verificar FFmpeg
         run: |
+
+          ffmpeg -version
+
+          echo "=========================================="
+
+          chromium --version
+
+          echo "=========================================="
+
+          pulseaudio --version
+
+
+      # ======================================================
+      # INICIAR TRANSMISSÃO
+      # ======================================================
+
+      - name: Iniciar transmissão
+
+        env:
+
+          PYPPETEER_NO_CHROMIUM_DOWNLOAD: "1"
+
+          DISPLAY: ":99"
+
+          PULSE_SINK: "webtv"
+
+        run: |
+
           python3 app.py
+
+
+      # ======================================================
+      # SALVAR DIAGNÓSTICOS
+      # ======================================================
+
+      - name: Salvar diagnósticos
+
+        if: always()
+
+        uses: actions/upload-artifact@v4
+
+        with:
+
+          name: webtv-debug
+
+          path: stream/
+
+          if-no-files-found: ignore
