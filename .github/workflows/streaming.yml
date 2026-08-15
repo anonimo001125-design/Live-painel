@@ -41,9 +41,15 @@ jobs:
             playwright \
             pyngrok
 
-      - name: Instalar navegador Playwright
+      - name: Instalar Chromium do Playwright
         run: |
           python3 -m playwright install chromium
+
+      - name: Verificar instalação
+        run: |
+          chromium --version
+          ffmpeg -version | head -n 1
+          python3 --version
 
       - name: Iniciar transmissão
         env:
