@@ -4,97 +4,292 @@ import subprocess
 import asyncio
 from pyppeteer import launch
 
-def iniciar():
-    # 1. Prepara a pasta de streaming e o arquivo m3u8 inicial
-    os.makedirs("stream", exist_ok=True)
-    with open("stream/live.m3u8", "w") as f:
-        f.write("#EXTM3U\n")
 
-    # 2. Inicia o servidor HTTP em segundo plano imediatamente
-    print("Iniciando servidor HTTP na porta 8080...")
-    subprocess.Popen(["python3", "-m", "http.server", "8080", "--directory", "stream"])
+STREAM_DIR = "stream"
+DISPLAY = ":99"
+WIDTH = 1280
+HEIGHT = 720
+
+
+def iniciar():
+
+    os.makedirs(STREAM_DIR, exist_ok=True)
+
+    # ---------------------------------------------------------
+    # 1. Xvfb
+    # ---------------------------------------------------------
+
+    print("Iniciando Xvfb...")
+
+    xvfb = subprocess.Popen([
+        "Xvfb",
+        DISPLAY,
+        "-screen", "0",
+        f"{WIDTH}x{HEIGHT}x24",
+        "-ac"
+    ])
+
+    os.environ["DISPLAY"] = DISPLAY
+
     time.sleep(2)
 
-    # 3. Liga a ponte de internet estável do sistema (.lhr.life)
-    print("Iniciando tunel de rede seguro e estavel...")
-    subprocess.Popen([
-        "ssh", "-o", "StrictHostKeyChecking=no", "-o", "ServerAliveInterval=60",
-        "-R", "80:localhost:8080", "nokey@localhost.run"
+    # ---------------------------------------------------------
+    # 2. PulseAudio
+    # ---------------------------------------------------------
+
+    print("Iniciando PulseAudio...")
+
+    os.environ["PULSE_RUNTIME_PATH"] = "/tmp/pulse"
+
+    os.makedirs("/tmp/pulse", exist_ok=True)
+
+    pulseaudio = subprocess.Popen([
+        "pulseaudio",
+        "--start",
+        "--exit-idle-time=-1",
+        "--system=false"
     ])
+
+    time.sleep(3)
+
+    # Descobre se o PulseAudio está funcionando
+    subprocess.run([
+        "pactl",
+        "info"
+    ], check=False)
+
+    # Cria um sink virtual
+    subprocess.run([
+        "pactl",
+        "load-module",
+        "module-null-sink",
+        "sink_name=webtv",
+        "sink_properties=device.description=WebTV"
+    ], check=False)
+
+    time.sleep(2)
+
+    AUDIO_DEVICE = "webtv.monitor"
+
+    # ---------------------------------------------------------
+    # 3. Servidor HTTP
+    # ---------------------------------------------------------
+
+    print("Iniciando servidor HTTP na porta 8080...")
+
+    http = subprocess.Popen([
+        "python3",
+        "-m",
+        "http.server",
+        "8080",
+        "--directory",
+        STREAM_DIR
+    ])
+
+    time.sleep(2)
+
+    # ---------------------------------------------------------
+    # 4. Túnel
+    # ---------------------------------------------------------
+
+    print("Iniciando túnel...")
+
+    tunnel = subprocess.Popen(
+        [
+            "ssh",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "ServerAliveInterval=30",
+            "-o", "ServerAliveCountMax=3",
+            "-R", "80:localhost:8080",
+            "nokey@localhost.run"
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
+
+    # Mostra o endereço fornecido pelo túnel
+    def mostrar_tunel():
+        for linha in iter(tunnel.stdout.readline, ""):
+            if linha:
+                print("[TUNEL]", linha.strip())
+
+    import threading
+
+    threading.Thread(
+        target=mostrar_tunel,
+        daemon=True
+    ).start()
+
     time.sleep(5)
 
-    print("\n==========================================================")
-    print("======== SEU STREAMING FOI INICIADO COM SUCESSO ========")
-    print("Suba a tela do log para copiar o seu endereço .lhr.life")
-    print("==========================================================\n")
+    # ---------------------------------------------------------
+    # 5. FFmpeg
+    # ---------------------------------------------------------
 
-    # 4. Configura a tela virtual em alta definição
-    os.system("Xvfb :99 -screen 0 1280x720x24 &")
-    os.environ["DISPLAY"] = ":99"
-    time.sleep(3) 
+    print("Iniciando FFmpeg...")
 
-    # 5. FFmpeg captura a tela virtual :99.0 completa, com áudio nativo e SEM MOUSE
     ffmpeg_cmd = [
-        "ffmpeg", "-f", "pulse", "-i", "auto_null.monitor",
-        "-f", "x11grab", "-draw_mouse", "0", "-video_size", "1280x720", "-i", ":99.0",
-        "-c:v", "libx264", "-preset", "ultrafast", "-profile:v", "baseline", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-g", "60", "-hls_time", "2", 
-        "-hls_list_size", "5", "-hls_flags", "delete_segments", 
-        "stream/live.m3u8"
+        "ffmpeg",
+
+        "-y",
+
+        # Áudio
+        "-f", "pulse",
+        "-i", AUDIO_DEVICE,
+
+        # Vídeo
+        "-f", "x11grab",
+        "-draw_mouse", "0",
+        "-video_size", f"{WIDTH}x{HEIGHT}",
+        "-framerate", "30",
+        "-i", f"{DISPLAY}.0",
+
+        # Vídeo
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-tune", "zerolatency",
+        "-pix_fmt", "yuv420p",
+
+        # Áudio
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-ar", "44100",
+
+        # HLS
+        "-f", "hls",
+        "-hls_time", "2",
+        "-hls_list_size", "5",
+        "-hls_flags", "delete_segments+append_list",
+        "-hls_segment_filename",
+        f"{STREAM_DIR}/segment_%03d.ts",
+
+        f"{STREAM_DIR}/live.m3u8"
     ]
-    print("FFmpeg iniciando gravacao continua em alta definicao...")
+
     processo_ffmpeg = subprocess.Popen(ffmpeg_cmd)
 
-    # 6. Executa o navegador leve via Pyppeteer rodando na tela virtual
+    time.sleep(5)
+
+    # Verifica se FFmpeg morreu
+    if processo_ffmpeg.poll() is not None:
+        print("ERRO: FFmpeg encerrou imediatamente.")
+        return
+
+    print("FFmpeg está transmitindo.")
+
+    # ---------------------------------------------------------
+    # 6. Navegador
+    # ---------------------------------------------------------
+
     async def abrir_navegador():
-        print("Ligando navegador ultra leve em modo Quiosque...")
+
+        print("Iniciando Chromium...")
+
         browser = await launch(
             headless=False,
+
+            executablePath="/usr/bin/chromium",
+
             args=[
                 "--no-sandbox",
+                "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
+
                 "--autoplay-policy=no-user-gesture-required",
-                "--kiosk",
-                "--start-fullscreen"
+
+                "--disable-gpu",
+                "--disable-software-rasterizer",
+
+                "--window-size=1280,720",
+                "--start-maximized"
             ]
         )
+
         page = await browser.newPage()
-        await page.setViewport({"width": 1280, "height": 720})
-        
-        url_alvo = "https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch"
-        print(f"Acessando o site: {url_alvo}")
-        
+
+        await page.setViewport({
+            "width": WIDTH,
+            "height": HEIGHT
+        })
+
+        url_alvo = (
+            "https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012"
+            ".us-east5.run.app/watch"
+        )
+
+        print("Abrindo:")
+        print(url_alvo)
+
         try:
-            await page.goto(url_alvo, timeout=0)
-            print("Site conectado de fundo. Aguardando estabilizacao...")
-            await asyncio.sleep(12)
-            
-            # === SIMULAÇÃO DE HARDWARE INDERRUBÁVEL ===
-            print("Desferindo duplo clique físico no centro para forçar a tela cheia...")
-            os.system("xdotool mousemove --display :99 640 360")
-            await asyncio.sleep(0.5)
-            os.system("xdotool dblclick --display :99 1")
-            print("Comando de tela cheia enviado com sucesso.")
-            
+
+            await page.goto(
+                url_alvo,
+                {
+                    "waitUntil": "networkidle2",
+                    "timeout": 120000
+                }
+            )
+
+            print("Site carregado.")
+
+            await asyncio.sleep(10)
+
+            # Tenta iniciar vídeos da página
+            await page.evaluate("""
+                () => {
+                    document.querySelectorAll('video').forEach(video => {
+                        video.muted = false;
+                        video.play().catch(() => {});
+                    });
+                }
+            """)
+
+            print("Player iniciado.")
+
         except Exception as e:
-            print(f"Aviso no navegador: {e}")
+            print("Erro ao abrir site:", e)
 
-        # Mantém a sessão ativa de forma contínua vigiando o player
+        # Mantém navegador vivo
         while True:
-            await asyncio.sleep(5)
-            try:
-                is_fullscreen = await page.evaluate("!!document.fullscreenElement")
-                if not is_fullscreen:
-                    os.system("xdotool mousemove --display :99 640 360")
-                    os.system("xdotool dblclick --display :99 1")
-            except:
-                pass
 
-    # Dispara a execução do loop assíncrono do navegador
+            await asyncio.sleep(10)
+
+            try:
+
+                await page.evaluate("""
+                    () => {
+                        document.querySelectorAll('video').forEach(video => {
+                            if (video.paused) {
+                                video.play().catch(() => {});
+                            }
+                        });
+                    }
+                """)
+
+            except Exception as e:
+                print("Erro verificando player:", e)
+
+    # ---------------------------------------------------------
+    # 7. Executar
+    # ---------------------------------------------------------
+
     try:
-        asyncio.get_event_loop().run_until_complete(abrir_navegador())
+
+        asyncio.get_event_loop().run_until_complete(
+            abrir_navegador()
+        )
+
     except KeyboardInterrupt:
+
+        print("Encerrando transmissão...")
+
         processo_ffmpeg.terminate()
+        http.terminate()
+        tunnel.terminate()
+        xvfb.terminate()
+        pulseaudio.terminate()
+
 
 if __name__ == "__main__":
     iniciar()
