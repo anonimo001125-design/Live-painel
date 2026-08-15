@@ -3,8 +3,10 @@ import time
 import subprocess
 
 def iniciar():
-    # 1. Prepara a pasta de streaming
+    # 1. Prepara a pasta de streaming e cria o arquivo base para evitar erro 404
     os.makedirs("stream", exist_ok=True)
+    with open("stream/live.m3u8", "w") as f:
+        f.write("#EXTM3U\n")
 
     # 2. Inicia o servidor HTTP em segundo plano imediatamente
     print("Iniciando servidor HTTP na porta 8080...")
@@ -28,12 +30,12 @@ def iniciar():
     url_site = "https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch"
     
     print("Pescando o sinal de video oculto do site...")
-    # O yt-dlp descobre o link m3u8 escondido do player do site em 2 segundos
+    # Chama o yt-dlp instalado pelo ambiente Python de forma direta
     try:
-        url_real_video = subprocess.check_output(["yt-dlp", "-g", url_site]).decode().strip()
+        url_real_video = subprocess.check_output(["python3", "-m", "yt_dlp", "-g", url_site]).decode().strip()
         print("Sinal de video encontrado com sucesso!")
-    except:
-        # Caso o site use um formato padrao, joga a URL direta como segurança
+    except Exception as e:
+        print(f"Aviso no extrator: {e}. Usando URL padrão por segurança.")
         url_real_video = url_site
 
     # 4. CAPTURA DO SINAL DIRECTO (Sem Navegador / Sem Travas / Tela Cheia Perfeita)
