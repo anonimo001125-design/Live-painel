@@ -12,12 +12,7 @@ jobs:
       - name: Instalar Dependencias do Sistema
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg curl
-
-      - name: Instalar Extratores via Python
-        run: |
-          # Instala o yt-dlp de forma direta e segura no ambiente do Python
-          pip install yt-dlp
+          sudo apt-get install -y ffmpeg pulseaudio xvfb xdotool
 
       - name: Iniciar Transmissao e Servidor
         run: |
