@@ -22,7 +22,7 @@ jobs:
             ffmpeg \
             pulseaudio \
             xvfb \
-            x11-utils \
+            chromium \
             python3-pip \
             python3-dev \
             libnss3 \
@@ -39,14 +39,14 @@ jobs:
             playwright \
             pyngrok
 
-      - name: Instalar Chromium
+      - name: Verificar Chromium
         run: |
-          python3 -m playwright install chromium
+          which chromium
+          chromium --version
 
-      - name: Verificar
+      - name: Verificar FFmpeg
         run: |
           ffmpeg -version | head -n 1
-          python3 --version
 
       - name: Iniciar transmissão
         env:
