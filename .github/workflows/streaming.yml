@@ -5,21 +5,32 @@ on:
 
 jobs:
   run-stream:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
 
-      - name: Instalar Sistema de Som, Video e Navegador Oficial
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+
+      - name: Instalar dependências
         run: |
           sudo apt-get update
-          # Instala o navegador Chromium direto no Linux de forma estavel
-          sudo apt-get install -y ffmpeg pulseaudio xvfb xdotool chromium-browser
 
-      - name: Instalar Conectores do Python
+          sudo apt-get install -y \
+            ffmpeg \
+            pulseaudio \
+            xvfb \
+            xdotool \
+            chromium \
+            openssh-client
+
+      - name: Instalar Python
         run: |
+          python3 -m pip install --upgrade pip
           pip install pyppeteer
 
-      - name: Iniciar Transmissao e Servidor
+      - name: Iniciar transmissão
+        env:
+          PYPPETEER_NO_CHROMIUM_DOWNLOAD: "1"
         run: |
-          mkdir -p stream
-          python app.py
+          python3 app.py
