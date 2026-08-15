@@ -9,16 +9,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Instalar Ferramentas de Video
+      - name: Instalar Dependencias do Sistema
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg curl
-          # Instala o extrator inteligente de video oficial
-          sudo curl -L https://github.com -o /usr/local/bin/yt-dlp
-          sudo chmod a+rx /usr/local/bin/yt-dlp
+
+      - name: Instalar Extratores via Python
+        run: |
+          # Instala o yt-dlp de forma direta e segura no ambiente do Python
+          pip install yt-dlp
 
       - name: Iniciar Transmissao e Servidor
         run: |
           mkdir -p stream
           python app.py
-          
