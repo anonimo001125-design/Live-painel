@@ -14,6 +14,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg pulseaudio xvfb xdotool
 
+      - name: Instalar Navegador Pyppeteer
+        run: |
+          # Instala o motor leve do navegador direto no sistema do GitHub
+          pip install pyppeteer
+
       - name: Iniciar Transmissao e Servidor
         run: |
           mkdir -p stream
