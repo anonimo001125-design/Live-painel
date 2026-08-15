@@ -58,7 +58,7 @@ def iniciar():
         # Abre a janela do navegador esticada no tamanho máximo do servidor
         page = browser.new_page(viewport={"width": 1280, "height": 720})
         
-        url_alvo = "https://run.app"
+        url_alvo = "https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch"
         print(f"Acessando o site: {url_alvo}")
         
         try:
