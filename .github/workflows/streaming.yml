@@ -14,7 +14,7 @@ jobs:
       - name: Baixar código
         uses: actions/checkout@v4
 
-      - name: Instalar dependências do sistema
+      - name: Instalar dependências
         run: |
           sudo apt-get update
 
@@ -23,15 +23,13 @@ jobs:
             pulseaudio \
             xvfb \
             x11-utils \
-            chromium \
             python3-pip \
             python3-dev \
             libnss3 \
             libatk-bridge2.0-0 \
             libgtk-3-0 \
             libgbm1 \
-            libasound2t64 \
-            openssh-client
+            libasound2t64
 
       - name: Instalar Python
         run: |
@@ -41,13 +39,12 @@ jobs:
             playwright \
             pyngrok
 
-      - name: Instalar Chromium do Playwright
+      - name: Instalar Chromium
         run: |
           python3 -m playwright install chromium
 
-      - name: Verificar instalação
+      - name: Verificar
         run: |
-          chromium --version
           ffmpeg -version | head -n 1
           python3 --version
 
