@@ -1,104 +1,144 @@
+app.py
+
+
 import os
-import re
 import time
-import signal
 import subprocess
-from pathlib import Path
+import asyncio
+import threading
+import signal
+import sys
 
-from playwright.sync_api import sync_playwright
+from pyppeteer import launch
 
 
 # ============================================================
-# CONFIGURAÇÃO
+# CONFIGURAÇÕES
 # ============================================================
+
+STREAM_DIR = "stream"
+
+DISPLAY = ":99"
 
 WIDTH = 1280
 HEIGHT = 720
-PORT = 8080
-DISPLAY = ":99"
 
-STREAM_DIR = Path("stream")
-M3U8 = STREAM_DIR / "live.m3u8"
+FPS = 30
 
-# ============================================================
-# COLOQUE A URL REAL DO SEU PAINEL AQUI
-# ============================================================
+HTTP_PORT = 8080
 
-URL_ALVO = os.getenv(
-    "SITE_URL",
-    "https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch"
+URL_ALVO = (
+    "https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012"
+    ".us-east5.run.app/watch"
 )
+
+
+# ============================================================
+# PROCESSOS
+# ============================================================
 
 processos = []
 
+browser_global = None
+ffmpeg_global = None
+
 
 # ============================================================
-# PULSE AUDIO
+# LOG
 # ============================================================
 
-def preparar_pulse():
-    print("[1] Preparando PulseAudio...")
+def log(*args):
+    print(*args, flush=True)
 
-    subprocess.run(
-        ["pulseaudio", "--kill"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False
-    )
 
-    subprocess.run(
-        [
-            "pulseaudio",
-            "--start",
-            "--exit-idle-time=-1"
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False
-    )
+# ============================================================
+# ENCERRAMENTO
+# ============================================================
 
-    time.sleep(3)
+def encerrar(*args):
 
-    # Cria uma saída virtual para o áudio do Chromium
-    resultado = subprocess.run(
-        [
-            "pactl",
-            "load-module",
-            "module-null-sink",
-            "sink_name=webtv",
-            "sink_properties=device.description=WebTV"
-        ],
-        capture_output=True,
-        text=True,
-        check=False
-    )
+    log("")
+    log("==========================================================")
+    log("ENCERRANDO TRANSMISSÃO")
+    log("==========================================================")
 
-    if resultado.returncode != 0:
-        print(
-            "[PULSE] Aviso:",
-            resultado.stderr.strip()
+    global ffmpeg_global
+
+    try:
+        if ffmpeg_global:
+            if ffmpeg_global.poll() is None:
+                ffmpeg_global.terminate()
+    except Exception:
+        pass
+
+    for processo in processos:
+
+        try:
+            if processo.poll() is None:
+                processo.terminate()
+        except Exception:
+            pass
+
+    time.sleep(2)
+
+    for processo in processos:
+
+        try:
+            if processo.poll() is None:
+                processo.kill()
+        except Exception:
+            pass
+
+    log("Transmissão encerrada.")
+
+    sys.exit(0)
+
+
+signal.signal(signal.SIGTERM, encerrar)
+signal.signal(signal.SIGINT, encerrar)
+
+
+# ============================================================
+# LIMPAR STREAM
+# ============================================================
+
+def limpar_stream():
+
+    os.makedirs(STREAM_DIR, exist_ok=True)
+
+    log("[1] Limpando stream antigo...")
+
+    for arquivo in os.listdir(STREAM_DIR):
+
+        caminho = os.path.join(
+            STREAM_DIR,
+            arquivo
         )
 
-    # Faz o Chromium mandar o áudio para esse dispositivo
-    os.environ["PULSE_SINK"] = "webtv"
+        try:
 
-    print("[PULSE] Saída do navegador: webtv")
-    print("[PULSE] FFmpeg capturará: webtv.monitor")
+            if os.path.isfile(caminho):
+                os.remove(caminho)
+
+        except Exception as erro:
+
+            log(
+                "[AVISO] Não foi possível remover:",
+                caminho,
+                erro
+            )
 
 
 # ============================================================
 # XVFB
 # ============================================================
 
-def preparar_xvfb():
-    print("[2] Iniciando Xvfb...")
+def iniciar_xvfb():
 
-    subprocess.run(
-        ["pkill", "-f", "Xvfb :99"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False
-    )
+    log("")
+    log("[2] Iniciando tela virtual Xvfb...")
+
+    os.environ["DISPLAY"] = DISPLAY
 
     xvfb = subprocess.Popen(
         [
@@ -107,37 +147,170 @@ def preparar_xvfb():
             "-screen",
             "0",
             f"{WIDTH}x{HEIGHT}x24",
-            "-ac"
+            "-ac",
+            "-nolisten",
+            "tcp"
         ],
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
+        stderr=subprocess.STDOUT
     )
 
     processos.append(xvfb)
 
-    os.environ["DISPLAY"] = DISPLAY
+    time.sleep(3)
+
+    if xvfb.poll() is not None:
+        raise RuntimeError(
+            "Xvfb encerrou imediatamente."
+        )
+
+    log("Tela virtual pronta.")
+    log("DISPLAY:", DISPLAY)
+    log("RESOLUÇÃO:", f"{WIDTH}x{HEIGHT}")
+
+
+# ============================================================
+# PULSEAUDIO
+# ============================================================
+
+def iniciar_audio():
+
+    log("")
+    log("[3] Iniciando PulseAudio...")
+
+    pulse_runtime = "/tmp/pulse"
+
+    os.environ["PULSE_RUNTIME_PATH"] = pulse_runtime
+    os.environ["PULSE_SINK"] = "webtv"
+
+    os.makedirs(
+        pulse_runtime,
+        exist_ok=True
+    )
+
+    subprocess.run(
+        [
+            "pulseaudio",
+            "--start",
+            "--exit-idle-time=-1"
+        ],
+        check=False
+    )
 
     time.sleep(3)
 
     teste = subprocess.run(
         [
-            "xdpyinfo",
-            "-display",
-            DISPLAY
+            "pactl",
+            "info"
         ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False
+        capture_output=True,
+        text=True
     )
 
     if teste.returncode != 0:
-        raise RuntimeError(
-            "Xvfb não conseguiu iniciar o display :99."
+
+        log(
+            "[ERRO] PulseAudio não iniciou."
         )
 
-    print(
-        f"[X11] Display {DISPLAY} ativo "
-        f"em {WIDTH}x{HEIGHT}"
+        log(
+            teste.stderr
+        )
+
+        raise RuntimeError(
+            "PulseAudio não está funcionando."
+        )
+
+    # --------------------------------------------------------
+    # Verifica sink
+    # --------------------------------------------------------
+
+    sinks = subprocess.run(
+        [
+            "pactl",
+            "list",
+            "short",
+            "sinks"
+        ],
+        capture_output=True,
+        text=True
+    )
+
+    if "webtv" not in sinks.stdout:
+
+        log(
+            "Criando sink virtual WebTV..."
+        )
+
+        resultado = subprocess.run(
+            [
+                "pactl",
+                "load-module",
+                "module-null-sink",
+
+                "sink_name=webtv",
+
+                "sink_properties=device.description=WebTV"
+            ],
+            capture_output=True,
+            text=True
+        )
+
+        if resultado.returncode != 0:
+
+            log(
+                resultado.stdout
+            )
+
+            log(
+                resultado.stderr
+            )
+
+            raise RuntimeError(
+                "Não foi possível criar o sink WebTV."
+            )
+
+    else:
+
+        log(
+            "Sink WebTV já existe."
+        )
+
+    subprocess.run(
+        [
+            "pactl",
+            "set-default-sink",
+            "webtv"
+        ],
+        check=False
+    )
+
+    time.sleep(1)
+
+    fontes = subprocess.run(
+        [
+            "pactl",
+            "list",
+            "short",
+            "sources"
+        ],
+        capture_output=True,
+        text=True
+    )
+
+    log("")
+    log("Fontes de áudio:")
+    log(fontes.stdout)
+
+    if "webtv.monitor" not in fontes.stdout:
+
+        raise RuntimeError(
+            "webtv.monitor não foi encontrado."
+        )
+
+    log(
+        "Áudio virtual pronto."
     )
 
 
@@ -145,79 +318,70 @@ def preparar_xvfb():
 # SERVIDOR HTTP
 # ============================================================
 
-def iniciar_http():
-    print("[3] Iniciando servidor HTTP...")
+def iniciar_servidor():
 
-    STREAM_DIR.mkdir(
-        parents=True,
-        exist_ok=True
-    )
+    log("")
+    log("[4] Iniciando servidor HTTP...")
 
     servidor = subprocess.Popen(
         [
             "python3",
             "-m",
             "http.server",
-            str(PORT),
-            "--bind",
-            "0.0.0.0",
+            str(HTTP_PORT),
             "--directory",
-            str(STREAM_DIR)
+            STREAM_DIR
         ],
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
+        stderr=subprocess.STDOUT
     )
 
     processos.append(servidor)
 
     time.sleep(2)
 
-    teste = subprocess.run(
-        [
-            "curl",
-            "-fsS",
-            f"http://127.0.0.1:{PORT}/"
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False
-    )
+    if servidor.poll() is not None:
 
-    if teste.returncode != 0:
         raise RuntimeError(
-            "Servidor HTTP não iniciou."
+            "Servidor HTTP encerrou."
         )
 
-    print(
-        f"[HTTP] Servidor ativo na porta {PORT}"
+    log(
+        "Servidor HTTP funcionando na porta",
+        HTTP_PORT
     )
 
 
 # ============================================================
-# SERVEO
+# TÚNEL
 # ============================================================
 
 def iniciar_tunel():
-    print("[4] Iniciando túnel Serveo...")
 
-    comando = [
-        "ssh",
-        "-o",
-        "StrictHostKeyChecking=no",
-        "-o",
-        "ServerAliveInterval=30",
-        "-o",
-        "ServerAliveCountMax=3",
-        "-o",
-        "ExitOnForwardFailure=yes",
-        "-N",
-        "-R",
-        f"80:localhost:{PORT}",
-        "serveo.net"
-    ]
+    log("")
+    log("[5] Iniciando túnel público...")
 
     tunnel = subprocess.Popen(
-        comando,
+        [
+            "ssh",
+
+            "-o",
+            "StrictHostKeyChecking=no",
+
+            "-o",
+            "ServerAliveInterval=30",
+
+            "-o",
+            "ServerAliveCountMax=3",
+
+            "-o",
+            "ExitOnForwardFailure=yes",
+
+            "-R",
+            f"80:localhost:{HTTP_PORT}",
+
+            "nokey@localhost.run"
+        ],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -226,563 +390,161 @@ def iniciar_tunel():
 
     processos.append(tunnel)
 
-    padrao = re.compile(
-        r"https?://[A-Za-z0-9.-]+\.serveo\.net"
-    )
+    def ler_tunel():
 
-    inicio = time.time()
-    linhas = []
-
-    while time.time() - inicio < 30:
-
-        if tunnel.poll() is not None:
-
-            restante = ""
-
-            if tunnel.stdout:
-                restante = tunnel.stdout.read()
-
-            raise RuntimeError(
-                "Serveo encerrou o túnel.\n\n"
-                + "\n".join(linhas)
-                + "\n"
-                + restante
-            )
-
-        linha = ""
-
-        if tunnel.stdout:
-            linha = tunnel.stdout.readline()
-
-        if linha:
-            linha = linha.strip()
-
-            linhas.append(linha)
-
-            print(
-                "[SERVEO]",
-                linha
-            )
-
-            resultado = padrao.search(linha)
-
-            if resultado:
-
-                url = resultado.group(0).rstrip("/")
-
-                print("")
-                print("=" * 60)
-                print("             LINK DA TRANSMISSÃO")
-                print("=" * 60)
-                print("")
-                print(
-                    f"{url}/live.m3u8"
-                )
-                print("")
-                print("=" * 60)
-                print("")
-
-                return url
-
-        time.sleep(0.2)
-
-    # Tentativa adicional
-    texto = "\n".join(linhas)
-
-    resultado = re.search(
-        r"([A-Za-z0-9-]+\.serveo\.net)",
-        texto
-    )
-
-    if resultado:
-
-        url = (
-            "https://"
-            + resultado.group(1)
-        )
-
-        print("")
-        print("=" * 60)
-        print("LINK DA TRANSMISSÃO")
-        print("=" * 60)
-        print(
-            f"{url}/live.m3u8"
-        )
-        print("=" * 60)
-        print("")
-
-        return url
-
-    raise RuntimeError(
-        "Serveo não informou o endereço público.\n\n"
-        + texto
-    )
-
-
-# ============================================================
-# FFMPEG
-# ============================================================
-
-def iniciar_ffmpeg():
-
-    print("[5] Iniciando FFmpeg...")
-
-    STREAM_DIR.mkdir(
-        parents=True,
-        exist_ok=True
-    )
-
-    # Remove segmentos antigos
-    for arquivo in STREAM_DIR.glob(
-        "segment_*.ts"
-    ):
         try:
-            arquivo.unlink()
-        except Exception:
-            pass
 
-    try:
-        M3U8.unlink()
-    except FileNotFoundError:
-        pass
+            for linha in iter(
+                tunnel.stdout.readline,
+                ""
+            ):
 
-    comando = [
-        "ffmpeg",
+                if not linha:
+                    continue
 
-        "-hide_banner",
-        "-loglevel",
-        "warning",
+                linha = linha.strip()
 
-        "-y",
-
-        # ====================================================
-        # ÁUDIO
-        # ====================================================
-
-        "-f",
-        "pulse",
-
-        "-thread_queue_size",
-        "1024",
-
-        "-i",
-        "webtv.monitor",
-
-        # ====================================================
-        # VÍDEO
-        # ====================================================
-
-        "-f",
-        "x11grab",
-
-        "-draw_mouse",
-        "0",
-
-        "-framerate",
-        "30",
-
-        "-video_size",
-        f"{WIDTH}x{HEIGHT}",
-
-        "-thread_queue_size",
-        "1024",
-
-        "-i",
-        f"{DISPLAY}.0",
-
-        # ====================================================
-        # MAPA
-        # ====================================================
-
-        "-map",
-        "1:v:0",
-
-        "-map",
-        "0:a:0",
-
-        # ====================================================
-        # VÍDEO H264
-        # ====================================================
-
-        "-c:v",
-        "libx264",
-
-        "-preset",
-        "veryfast",
-
-        "-tune",
-        "zerolatency",
-
-        "-pix_fmt",
-        "yuv420p",
-
-        "-profile:v",
-        "main",
-
-        "-level",
-        "3.1",
-
-        "-r",
-        "30",
-
-        "-g",
-        "60",
-
-        "-keyint_min",
-        "60",
-
-        "-sc_threshold",
-        "0",
-
-        # ====================================================
-        # ÁUDIO AAC
-        # ====================================================
-
-        "-c:a",
-        "aac",
-
-        "-b:a",
-        "128k",
-
-        "-ar",
-        "44100",
-
-        "-ac",
-        "2",
-
-        # ====================================================
-        # HLS
-        # ====================================================
-
-        "-f",
-        "hls",
-
-        "-hls_time",
-        "2",
-
-        "-hls_list_size",
-        "6",
-
-        "-hls_flags",
-        "delete_segments+append_list+independent_segments",
-
-        "-hls_segment_filename",
-        str(
-            STREAM_DIR /
-            "segment_%05d.ts"
-        ),
-
-        str(M3U8)
-    ]
-
-    print("")
-    print("FFmpeg:")
-    print(" ".join(comando))
-    print("")
-
-    ffmpeg = subprocess.Popen(
-        comando
-    )
-
-    processos.append(ffmpeg)
-
-    # Espera o HLS realmente começar
-    inicio = time.time()
-
-    while time.time() - inicio < 40:
-
-        if ffmpeg.poll() is not None:
-
-            raise RuntimeError(
-                "FFmpeg encerrou. "
-                f"Código: {ffmpeg.returncode}"
-            )
-
-        if M3U8.exists():
-
-            try:
-                texto = M3U8.read_text(
-                    errors="ignore"
+                log(
+                    "[TUNEL]",
+                    linha
                 )
 
-                if "#EXTINF:" in texto:
+                if "https://" in linha:
 
-                    print(
-                        "[FFMPEG] HLS está funcionando."
+                    inicio = linha.find(
+                        "https://"
                     )
 
-                    return
+                    url = linha[inicio:].split()[0]
 
-            except Exception:
-                pass
-
-        time.sleep(1)
-
-    raise RuntimeError(
-        "FFmpeg iniciou, mas "
-        "live.m3u8 não recebeu segmentos."
-    )
-
-
-# ============================================================
-# NAVEGADOR
-# ============================================================
-
-def iniciar_navegador():
-
-    print("[6] Abrindo Chromium...")
-    print("[BROWSER] Modo quiosque:")
-    print("[BROWSER] 1280x720")
-    print("[BROWSER] Tela cheia sem abas")
-
-    with sync_playwright() as p:
-
-        browser = p.chromium.launch(
-
-            headless=False,
-
-            args=[
-                "--no-sandbox",
-
-                "--disable-dev-shm-usage",
-
-                "--disable-infobars",
-
-                "--no-first-run",
-
-                "--no-default-browser-check",
-
-                "--autoplay-policy=no-user-gesture-required",
-
-                # Tela cheia verdadeira
-                "--kiosk",
-
-                "--start-fullscreen",
-
-                "--start-maximized",
-
-                f"--window-size={WIDTH},{HEIGHT}",
-
-                "--force-device-scale-factor=1"
-            ]
-        )
-
-        # viewport=None é importante:
-        # usa o tamanho real da janela Xvfb
-        page = browser.new_page(
-            viewport=None
-        )
-
-        page.on(
-            "console",
-            lambda msg:
-            print(
-                "[CHROMIUM]",
-                msg.type,
-                ":",
-                msg.text
-            )
-        )
-
-        page.on(
-            "pageerror",
-            lambda erro:
-            print(
-                "[CHROMIUM PAGE ERROR]",
-                erro
-            )
-        )
-
-        print("")
-        print(
-            "[BROWSER] Abrindo painel:"
-        )
-        print(URL_ALVO)
-        print("")
-
-        try:
-
-            page.goto(
-                URL_ALVO,
-                wait_until="domcontentloaded",
-                timeout=120000
-            )
+                    log("")
+                    log(
+                        "=========================================================="
+                    )
+                    log(
+                        "URL PÚBLICA"
+                    )
+                    log(url)
+                    log("")
+                    log(
+                        "HLS"
+                    )
+                    log(
+                        url.rstrip("/") +
+                        "/live.m3u8"
+                    )
+                    log(
+                        "=========================================================="
+                    )
+                    log("")
 
         except Exception as erro:
 
-            print(
-                "[BROWSER] Aviso:",
+            log(
+                "[TUNEL] Erro:",
                 erro
             )
 
-        print(
-            "[BROWSER] Aguardando painel..."
+    threading.Thread(
+        target=ler_tunel,
+        daemon=True
+    ).start()
+
+    time.sleep(5)
+
+
+# ============================================================
+# DIAGNÓSTICO X11
+# ============================================================
+
+def testar_tela():
+
+    log("")
+    log(
+        "[DIAGNÓSTICO] Testando captura do Xvfb..."
+    )
+
+    arquivo = os.path.join(
+        STREAM_DIR,
+        "debug_screen.png"
+    )
+
+    resultado = subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+
+            "-f",
+            "x11grab",
+
+            "-video_size",
+            f"{WIDTH}x{HEIGHT}",
+
+            "-framerate",
+            "1",
+
+            "-i",
+            f"{DISPLAY}.0",
+
+            "-frames:v",
+            "1",
+
+            arquivo
+        ],
+
+        stdout=subprocess.PIPE,
+
+        stderr=subprocess.PIPE,
+
+        text=True
+    )
+
+    if resultado.returncode == 0:
+
+        log(
+            "[DIAGNÓSTICO] Captura criada:",
+            arquivo
         )
 
-        time.sleep(10)
+    else:
 
-        # ====================================================
-        # FUNÇÃO DE REPRODUÇÃO
-        # ====================================================
+        log(
+            "[DIAGNÓSTICO] Erro:",
+            resultado.stderr[-3000:]
+        )
 
-        def tentar_reproduzir():
 
-            try:
+# ============================================================
+# DIAGNÓSTICO DOS VÍDEOS
+# ============================================================
 
-                resultado = page.evaluate(
-                    """
-                    async () => {
+async def diagnosticar_videos(page):
 
-                        const videos =
-                            Array.from(
-                                document.querySelectorAll(
-                                    "video"
-                                )
-                            );
+    try:
 
-                        const dados = [];
+        resultado = await page.evaluate(
+            """
+            () => {
 
-                        for (const video of videos) {
+                const videos =
+                    Array.from(
+                        document.querySelectorAll("video")
+                    );
 
-                            try {
-
-                                video.setAttribute(
-                                    "playsinline",
-                                    ""
-                                );
-
-                                video.setAttribute(
-                                    "autoplay",
-                                    ""
-                                );
-
-                                video.volume = 1.0;
-
-                                /*
-                                 * Não forçamos muted=true.
-                                 * O Chromium está configurado
-                                 * para permitir autoplay.
-                                 */
-
-                                if (
-                                    video.readyState >= 1
-                                ) {
-
-                                    try {
-
-                                        await video.play();
-
-                                    } catch (e) {
-
-                                        console.log(
-                                            "play() bloqueado:",
-                                            String(e)
-                                        );
-
-                                    }
-
-                                }
-
-                                dados.push({
-
-                                    paused:
-                                        video.paused,
-
-                                    ended:
-                                        video.ended,
-
-                                    muted:
-                                        video.muted,
-
-                                    readyState:
-                                        video.readyState,
-
-                                    currentTime:
-                                        video.currentTime,
-
-                                    width:
-                                        video.videoWidth,
-
-                                    height:
-                                        video.videoHeight
-                                });
-
-                            } catch (e) {
-
-                                dados.push({
-                                    erro: String(e)
-                                });
-
-                            }
-                        }
+                return videos.map(
+                    (video, index) => {
 
                         return {
 
-                            quantidade:
-                                videos.length,
+                            index: index,
 
-                            videos:
-                                dados
-                        };
-                    }
-                    """
-                )
+                            src: video.src || "",
 
-                print(
-                    "[PLAYER]",
-                    resultado
-                )
+                            currentSrc:
+                                video.currentSrc || "",
 
-                # Gesto físico no centro da tela.
-                # Ajuda players que exigem interação.
-                page.mouse.click(
-                    WIDTH // 2,
-                    HEIGHT // 2
-                )
-
-            except Exception as erro:
-
-                print(
-                    "[PLAYER] Erro:",
-                    erro
-                )
-
-        # Primeira tentativa
-        tentar_reproduzir()
-
-        print("")
-        print(
-            "[7] Monitor do player ativado."
-        )
-        print("")
-
-        ultimo_url = ""
-
-        while True:
-
-            time.sleep(5)
-
-            if page.is_closed():
-
-                print(
-                    "[BROWSER] Página fechada."
-                )
-
-                break
-
-            try:
-
-                url_atual = page.url
-
-                estado = page.evaluate(
-                    """
-                    () => {
-
-                        return Array.from(
-                            document.querySelectorAll(
-                                "video"
-                            )
-                        ).map(video => ({
+                            poster:
+                                video.poster || "",
 
                             paused:
                                 video.paused,
@@ -790,172 +552,417 @@ def iniciar_navegador():
                             ended:
                                 video.ended,
 
+                            muted:
+                                video.muted,
+
+                            autoplay:
+                                video.autoplay,
+
                             readyState:
                                 video.readyState,
 
+                            networkState:
+                                video.networkState,
+
                             currentTime:
                                 video.currentTime,
+
+                            duration:
+                                video.duration,
+
+                            videoWidth:
+                                video.videoWidth,
+
+                            videoHeight:
+                                video.videoHeight,
+
+                            error:
+                                video.error
+                                    ? {
+                                        code:
+                                            video.error.code,
+
+                                        message:
+                                            video.error.message
+                                    }
+                                    : null,
+
+                            sources:
+                                Array.from(
+                                    video.querySelectorAll(
+                                        "source"
+                                    )
+                                ).map(
+                                    source => ({
+
+                                        src:
+                                            source.src,
+
+                                        type:
+                                            source.type
+
+                                    })
+                                )
+
+                        };
+
+                    }
+                );
+
+            }
+            """
+        )
+
+        log("")
+        log(
+            "=========================================================="
+        )
+        log(
+            "[DIAGNÓSTICO COMPLETO DOS VÍDEOS]"
+        )
+        log(
+            "=========================================================="
+        )
+
+        for video in resultado:
+
+            log(
+                "Vídeo:",
+                video
+            )
+
+        log(
+            "=========================================================="
+        )
+        log("")
+
+        return resultado
+
+    except Exception as erro:
+
+        log(
+            "[DIAGNÓSTICO] Erro:",
+            erro
+        )
+
+        return []
+
+
+# ============================================================
+# TENTA INICIAR OS VÍDEOS
+# ============================================================
+
+async def iniciar_videos(page):
+
+    log("")
+    log(
+        "[PLAYER] Tentando inicializar vídeos..."
+    )
+
+    try:
+
+        resultado = await page.evaluate(
+            """
+            async () => {
+
+                const videos =
+                    Array.from(
+                        document.querySelectorAll("video")
+                    );
+
+                const resultados = [];
+
+                for (
+                    let i = 0;
+                    i < videos.length;
+                    i++
+                ) {
+
+                    const video = videos[i];
+
+                    try {
+
+                        video.autoplay = true;
+
+                        video.playsInline = true;
+
+                        /*
+                         * Não alteramos muted aqui.
+                         *
+                         * Alguns players precisam controlar
+                         * isso internamente.
+                         */
+
+                        if (
+                            video.readyState === 0 &&
+                            video.load
+                        ) {
+                            video.load();
+                        }
+
+                        let sucesso = false;
+
+                        try {
+
+                            const promessa =
+                                video.play();
+
+                            if (promessa) {
+                                await promessa;
+                            }
+
+                            sucesso = true;
+
+                        } catch (erro) {
+
+                            sucesso = false;
+                        }
+
+                        resultados.push({
+
+                            index: i,
+
+                            sucesso: sucesso,
+
+                            src:
+                                video.src || "",
+
+                            currentSrc:
+                                video.currentSrc || "",
+
+                            readyState:
+                                video.readyState,
+
+                            networkState:
+                                video.networkState,
 
                             width:
                                 video.videoWidth,
 
                             height:
-                                video.videoHeight
-                        }));
+                                video.videoHeight,
+
+                            paused:
+                                video.paused
+
+                        });
+
+                    } catch (erro) {
+
+                        resultados.push({
+
+                            index: i,
+
+                            sucesso: false,
+
+                            erro:
+                                String(erro)
+
+                        });
 
                     }
-                    """
-                )
 
-                print(
-                    "[PLAYER CHECK]",
-                    estado
-                )
+                }
 
-                mudou_pagina = (
-                    url_atual != ultimo_url
-                )
-
-                algum_parado = any(
-                    item.get("paused")
-                    and not item.get("ended")
-                    for item in estado
-                    if isinstance(item, dict)
-                )
-
-                algum_sem_video = any(
-                    item.get("readyState", 0) == 0
-                    for item in estado
-                    if isinstance(item, dict)
-                )
-
-                if (
-                    mudou_pagina
-                    or algum_parado
-                    or algum_sem_video
-                ):
-
-                    print(
-                        "[PLAYER] Tentando "
-                        "reproduzir novamente..."
-                    )
-
-                    tentar_reproduzir()
-
-                ultimo_url = url_atual
-
-            except Exception as erro:
-
-                print(
-                    "[MONITOR] Aviso:",
-                    erro
-                )
-
-
-# ============================================================
-# LIMPEZA
-# ============================================================
-
-def limpar(*args):
-
-    print("")
-    print(
-        "[FINAL] Encerrando processos..."
-    )
-
-    for processo in reversed(processos):
-
-        try:
-
-            if processo.poll() is None:
-
-                processo.terminate()
-
-        except Exception:
-            pass
-
-    time.sleep(2)
-
-    for processo in reversed(processos):
-
-        try:
-
-            if processo.poll() is None:
-
-                processo.kill()
-
-        except Exception:
-            pass
-
-
-# ============================================================
-# INICIAR
-# ============================================================
-
-def iniciar():
-
-    signal.signal(
-        signal.SIGTERM,
-        limpar
-    )
-
-    signal.signal(
-        signal.SIGINT,
-        limpar
-    )
-
-    print("")
-    print("=" * 60)
-    print("                 INICIANDO WEBTV")
-    print("=" * 60)
-    print("")
-
-    if "SEU-PAINEL-AQUI" in URL_ALVO:
-
-        raise RuntimeError(
-            "Você precisa colocar a URL real "
-            "do seu painel em URL_ALVO."
+                return resultados;
+            }
+            """
         )
 
-    STREAM_DIR.mkdir(
-        parents=True,
-        exist_ok=True
+        log(
+            "[PLAYER] Resultado:",
+            resultado
+        )
+
+        return resultado
+
+    except Exception as erro:
+
+        log(
+            "[PLAYER] Erro:",
+            erro
+        )
+
+        return []
+
+
+# ============================================================
+# ESPERA VÍDEO CARREGAR
+# ============================================================
+
+async def esperar_video(page):
+
+    log("")
+    log(
+        "[PLAYER] Aguardando vídeo receber dados..."
     )
 
-    preparar_pulse()
+    for tentativa in range(1, 7):
 
-    preparar_xvfb()
+        await asyncio.sleep(5)
 
-    iniciar_http()
+        resultado = await diagnosticar_videos(
+            page
+        )
 
-    url_publica = iniciar_tunel()
+        carregado = False
 
-    iniciar_ffmpeg()
+        for video in resultado:
 
-    # Mostra novamente o link depois
-    # que o HLS realmente começou.
-    print("")
-    print("=" * 70)
-    print("                 TRANSMISSÃO ONLINE")
-    print("=" * 70)
-    print("")
-    print(
-        "LINK HLS:"
+            if (
+                video.get("readyState", 0) >= 2
+                and
+                video.get("videoWidth", 0) > 0
+                and
+                video.get("videoHeight", 0) > 0
+            ):
+
+                carregado = True
+
+                break
+
+        if carregado:
+
+            log("")
+            log(
+                "[PLAYER] VÍDEO CARREGADO!"
+            )
+
+            return True
+
+        log(
+            "[PLAYER] Ainda não carregou.",
+            "Tentativa:",
+            tentativa,
+            "/ 6"
+        )
+
+    log("")
+    log(
+        "[PLAYER] Nenhum vídeo recebeu dados."
     )
-    print(
-        f"{url_publica}/live.m3u8"
+
+    return False
+
+
+# ============================================================
+# CHROMIUM
+# ============================================================
+
+async def abrir_navegador():
+
+    global browser_global
+
+    log("")
+    log(
+        "[6] Iniciando Chromium..."
     )
-    print("")
-    print(
-        "O link acima é o que você deve colocar "
-        "no seu player."
+    log("")
+
+    ambiente = os.environ.copy()
+
+    ambiente["DISPLAY"] = DISPLAY
+
+    ambiente["PULSE_SINK"] = "webtv"
+
+    browser = await launch(
+
+        headless=False,
+
+        executablePath="/usr/bin/chromium",
+
+        env=ambiente,
+
+        ignoreDefaultArgs=[
+            "--enable-automation"
+        ],
+
+        handleSIGINT=False,
+
+        handleSIGTERM=False,
+
+        handleSIGHUP=False,
+
+        args=[
+
+            "--no-sandbox",
+
+            "--disable-setuid-sandbox",
+
+            "--disable-dev-shm-usage",
+
+            # X11
+            "--ozone-platform=x11",
+
+            # Renderização
+            "--use-gl=swiftshader",
+
+            "--disable-gpu",
+
+            "--disable-gpu-compositing",
+
+            "--disable-gpu-rasterization",
+
+            "--disable-accelerated-video-decode",
+
+            "--disable-accelerated-video-encode",
+
+            # Autoplay
+            "--autoplay-policy=no-user-gesture-required",
+
+            # Janela
+            "--window-size=1280,720",
+
+            "--window-position=0,0",
+
+            "--force-device-scale-factor=1",
+
+            # Estabilidade
+            "--no-first-run",
+
+            "--no-default-browser-check",
+
+            "--disable-background-networking",
+
+            "--disable-background-timer-throttling",
+
+            "--disable-backgrounding-occluded-windows",
+
+            "--disable-renderer-backgrounding",
+
+            "--disable-popup-blocking",
+
+            "--disable-notifications",
+
+            "--disable-infobars"
+        ]
     )
-    print("")
-    print("=" * 70)
-    print("")
 
-    iniciar_navegador()
+    browser_global = browser
 
+    log(
+        "Chromium iniciado."
+    )
 
-if __name__ == "__main__":
-    iniciar()
+    page = await browser.newPage()
+
+    await page.setViewport(
+        {
+            "width": WIDTH,
+
+            "height": HEIGHT,
+
+            "deviceScaleFactor": 1
+        }
+    )
+
+    # ========================================================
+    # MONITORAMENTO DE ERROS
+    # ========================================================
+
+    page.on(
+        "console",
+        lambda mensagem:
+            log(
+                "[CONSOLE]",
+                mensagem.text
