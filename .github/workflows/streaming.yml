@@ -4,84 +4,25 @@ on:
   workflow_dispatch:
 
 jobs:
-
   run-stream:
-
-    runs-on: ubuntu-24.04
-
-    timeout-minutes: 350
-
+    runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
 
-      # ======================================================
-      # BAIXAR CÓDIGO
-      # ======================================================
-
-      - name: Baixar código
-        uses: actions/checkout@v4
-
-
-      # ======================================================
-      # INSTALAR SISTEMA
-      # ======================================================
-
-      - name: Instalar sistema
+      - name: Instalar Dependencias do Sistema
         run: |
-
           sudo apt-get update
+          sudo apt-get install -y ffmpeg pulseaudio curl
 
-          sudo apt-get install -y \
-            ffmpeg \
-            pulseaudio \
-            pulseaudio-utils \
-            xvfb \
-            xdotool \
-            chromium \
-            openssh-client
-
-
-      # ======================================================
-      # PYPPETEER
-      # ======================================================
-
-      - name: Instalar Pyppeteer
+      - name: Instalar Playwright e Ngrok
         run: |
+          pip install playwright pyngrok
+          playwright install chromium --with-deps
 
-          python3 -m pip install --upgrade pip
-
-          pip install pyppeteer
-
-
-      # ======================================================
-      # VERIFICAR INSTALAÇÕES
-      # ======================================================
-
-      - name: Verificar sistema
+      - name: Iniciar Transmissao e Servidor
         run: |
-
-          echo "=========================================="
-          echo "FFMPEG"
-          echo "=========================================="
-
-          ffmpeg -version
-
-          echo "=========================================="
-          echo "CHROMIUM"
-          echo "=========================================="
-
-          chromium --version
-
-          echo "=========================================="
-          echo "PULSEAUDIO"
-          echo "=========================================="
-
-          pulseaudio --version
-
-          echo "=========================================="
-          echo "PYTHON"
-          echo "=========================================="
-
-          python3 --version
+          mkdir -p stream
+          pulseaudio -D --exit-idle-time=-1 --system=false && python app.py
 
 
       # ======================================================
