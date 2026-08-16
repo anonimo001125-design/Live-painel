@@ -4,60 +4,59 @@ on:
   workflow_dispatch:
 
 jobs:
+
   run-stream:
-    runs-on: ubuntu-latest
+
+    runs-on: ubuntu-22.04
+
+    timeout-minutes: 350
+
     steps:
-      - uses: actions/checkout@v4
 
-      - name: Instalar Dependencias do Sistema
+      - name: Baixar código
+        uses: actions/checkout@v4
+
+      - name: Instalar dependências
         run: |
+
           sudo apt-get update
-          sudo apt-get install -y ffmpeg pulseaudio curl
 
-      - name: Instalar Playwright e Ngrok
+          sudo apt-get install -y \
+            ffmpeg \
+            pulseaudio \
+            xvfb \
+            xdotool \
+            openssh-client \
+            python3-pip \
+            python3-dev
+
+      - name: Instalar Python
         run: |
-          pip install playwright pyngrok
+
+          python3 -m pip install \
+            --upgrade \
+            pip \
+            --break-system-packages
+
+          pip install \
+            playwright \
+            --break-system-packages
+
+      - name: Instalar Chromium
+        run: |
+
           playwright install chromium --with-deps
 
-      - name: Iniciar Transmissao e Servidor
-        run: |
-          mkdir -p stream
-          pulseaudio -D --exit-idle-time=-1 --system=false && python app.py
-
-
-      # ======================================================
-      # INICIAR TRANSMISSÃO
-      # ======================================================
-
       - name: Iniciar transmissão
-
-        env:
-
-          PYPPETEER_NO_CHROMIUM_DOWNLOAD: "1"
-
-          DISPLAY: ":99"
-
-          PULSE_SINK: "webtv"
-
         run: |
+
+          mkdir -p stream
+
+          pulseaudio \
+            -D \
+            --exit-idle-time=-1 \
+            --system=false
+
+          sleep 3
 
           python3 app.py
-
-
-      # ======================================================
-      # SALVAR DIAGNÓSTICOS
-      # ======================================================
-
-      - name: Salvar diagnósticos
-
-        if: always()
-
-        uses: actions/upload-artifact@v4
-
-        with:
-
-          name: webtv-debug
-
-          path: stream/
-
-          if-no-files-found: ignore
