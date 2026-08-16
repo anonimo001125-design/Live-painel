@@ -13,19 +13,11 @@ jobs:
 
     steps:
 
-      # ======================================================
-      # BAIXAR CÓDIGO
-      # ======================================================
-
       - name: Baixar código
         uses: actions/checkout@v4
 
 
-      # ======================================================
-      # INSTALAR SISTEMA
-      # ======================================================
-
-      - name: Instalar dependências
+      - name: Instalar sistema
         run: |
 
           sudo apt-get update
@@ -38,68 +30,52 @@ jobs:
             xdotool \
             chromium \
             openssh-client \
-            python3-venv
+            python3-pip
 
-
-      # ======================================================
-      # PYTHON
-      # ======================================================
 
       - name: Instalar Python
         run: |
 
-          python3 -m venv .venv
+          python3 -m pip install --upgrade pip
 
-          .venv/bin/python -m pip install --upgrade pip
+          python3 -m pip install \
+            --break-system-packages \
+            playwright
 
-          .venv/bin/python -m pip install pyppeteer==2.0.0
 
-
-      # ======================================================
-      # VERIFICAR SISTEMA
-      # ======================================================
-
-      - name: Verificar instalações
+      - name: Instalar Chromium Playwright
         run: |
 
-          echo "=========================================="
+          playwright install chromium
+
+
+      - name: Verificar sistema
+        run: |
+
+          echo "========================================"
           echo "PYTHON"
-          echo "=========================================="
+          echo "========================================"
 
-          .venv/bin/python --version
+          python3 --version
 
-
-          echo "=========================================="
-          echo "CHROMIUM"
-          echo "=========================================="
-
-          chromium --version
-
-
-          echo "=========================================="
+          echo "========================================"
           echo "FFMPEG"
-          echo "=========================================="
+          echo "========================================"
 
           ffmpeg -version | head -n 2
 
+          echo "========================================"
+          echo "CHROMIUM"
+          echo "========================================"
 
-          echo "=========================================="
+          chromium --version
+
+          echo "========================================"
           echo "PULSEAUDIO"
-          echo "=========================================="
+          echo "========================================"
 
           pulseaudio --version
 
-
-          echo "=========================================="
-          echo "XDOTOOL"
-          echo "=========================================="
-
-          xdotool --version
-
-
-      # ======================================================
-      # PREPARAR STREAM
-      # ======================================================
 
       - name: Preparar ambiente
         run: |
@@ -109,10 +85,6 @@ jobs:
           echo "Ambiente preparado."
 
 
-      # ======================================================
-      # INICIAR TRANSMISSÃO
-      # ======================================================
-
       - name: Iniciar transmissão
         env:
 
@@ -120,22 +92,14 @@ jobs:
 
           PULSE_SINK: "webtv"
 
-          PYPPETEER_NO_CHROMIUM_DOWNLOAD: "1"
-
         run: |
 
-          set -o pipefail
-
-          echo "=========================================="
+          echo "========================================"
           echo "INICIANDO WEBTV"
-          echo "=========================================="
+          echo "========================================"
 
-          .venv/bin/python app.py
+          python3 app.py
 
-
-      # ======================================================
-      # SALVAR DIAGNÓSTICOS
-      # ======================================================
 
       - name: Salvar diagnósticos
         if: always()
