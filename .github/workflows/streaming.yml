@@ -10,19 +10,22 @@ jobs:
 
     timeout-minutes: 350
 
-    env:
-      PYTHONUNBUFFERED: "1"
-      URL_ALVO: "https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch"
-
     steps:
+
+      # ======================================================
+      # BAIXAR REPOSITÓRIO
+      # ======================================================
 
       - name: Baixar código
         uses: actions/checkout@v4
 
+
+      # ======================================================
+      # DEPENDÊNCIAS DO SISTEMA
+      # ======================================================
+
       - name: Instalar dependências
-        shell: bash
         run: |
-          set -e
 
           sudo apt-get update
 
@@ -31,75 +34,108 @@ jobs:
             pulseaudio \
             pulseaudio-utils \
             xvfb \
-            x11-utils \
-            x11-xserver-utils \
+            xdotool \
+            curl \
             openssh-client \
             python3 \
-            python3-pip
+            python3-venv
+
+
+      # ======================================================
+      # AMBIENTE PYTHON
+      # ======================================================
 
       - name: Instalar Python
-        shell: bash
         run: |
-          python3 -m pip install \
-            --user \
-            --upgrade \
-            playwright
+
+          python3 -m venv .venv
+
+          . .venv/bin/activate
+
+          python -m pip install --upgrade pip
+
+          python -m pip install playwright
+
+
+      # ======================================================
+      # CHROMIUM
+      # ======================================================
 
       - name: Instalar Chromium
-        shell: bash
         run: |
-          python3 -m playwright install chromium
+
+          . .venv/bin/activate
+
+          playwright install chromium --with-deps
+
+
+      # ======================================================
+      # PREPARAR PASTA
+      # ======================================================
 
       - name: Preparar ambiente
-        shell: bash
         run: |
+
           mkdir -p stream
 
-          echo "======================================"
-          echo "AMBIENTE PREPARADO"
-          echo "======================================"
+          echo "Ambiente preparado."
 
-          python3 --version
-          ffmpeg -version | head -n 1
-          Xvfb -version || true
+
+      # ======================================================
+      # TRANSMISSÃO
+      # ======================================================
 
       - name: Iniciar transmissão
-        shell: bash
+        env:
+
+          # COLOQUE A URL REAL DO SEU PAINEL AQUI
+          SITE_URL: "https://SEU-PAINEL-AQUI"
+
         run: |
+
           set -o pipefail
 
-          echo "======================================"
-          echo "INICIANDO WEBTV"
-          echo "======================================"
+          echo ""
+          echo "=============================================="
+          echo "             INICIANDO WEBTV"
+          echo "=============================================="
+          echo ""
+
+          . .venv/bin/activate
 
           python3 app.py
 
+
+      # ======================================================
+      # DIAGNÓSTICOS
+      # ======================================================
+
       - name: Salvar diagnósticos
         if: always()
-        shell: bash
         run: |
-          echo "======================================"
+
+          echo "=============================================="
           echo "PROCESSOS"
-          echo "======================================"
+          echo "=============================================="
 
           ps aux | grep -E \
-            'ffmpeg|chrom|Xvfb|pulse|http.server|ssh' \
-            | grep -v grep || true
+            "ffmpeg|chromium|Xvfb|pulseaudio|ssh" \
+            || true
 
           echo ""
-          echo "======================================"
+          echo "=============================================="
           echo "STREAM"
-          echo "======================================"
+          echo "=============================================="
 
           ls -lah stream || true
 
           echo ""
-          echo "======================================"
-          echo "LIVE.M3U8"
-          echo "======================================"
+          echo "=============================================="
+          echo "PLAYLIST"
+          echo "=============================================="
 
           if [ -f stream/live.m3u8 ]; then
             cat stream/live.m3u8
           else
-            echo "live.m3u8 não foi criado."
+            echo "live.m3u8 não existe."
           fi
