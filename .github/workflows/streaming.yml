@@ -5,43 +5,150 @@ on:
 
 jobs:
   run-stream:
-    runs-on: ubuntu-24.04
+
+    runs-on: ubuntu-latest
 
     timeout-minutes: 350
 
     steps:
 
+      # =====================================================
+      # BAIXAR CÓDIGO
+      # =====================================================
+
       - name: Baixar código
         uses: actions/checkout@v4
 
+
+      # =====================================================
+      # PYTHON
+      # =====================================================
+
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+
+      # =====================================================
+      # DEPENDÊNCIAS DO SISTEMA
+      # =====================================================
+
       - name: Instalar dependências
         run: |
+
           sudo apt-get update
+
           sudo apt-get install -y \
             ffmpeg \
             pulseaudio \
             xvfb \
+            x11-utils \
             xdotool \
-            openssh-client \
-            python3 \
-            python3-pip
+            curl \
+            wget \
+            ca-certificates \
+            openssh-client
 
-      - name: Instalar Python
+
+      # =====================================================
+      # VERIFICAR CHROME
+      # =====================================================
+
+      - name: Verificar Chrome
         run: |
-          python3 -m pip install \
-            --user \
+
+          echo "Procurando Google Chrome..."
+
+          which google-chrome || true
+          google-chrome --version || true
+
+
+      # =====================================================
+      # PYTHON PACKAGES
+      # =====================================================
+
+      - name: Instalar bibliotecas Python
+        run: |
+
+          python -m pip install --upgrade pip
+
+          python -m pip install \
             playwright \
             pyngrok
 
-      - name: Instalar Chromium
+
+      # =====================================================
+      # PLAYWRIGHT
+      # =====================================================
+
+      - name: Instalar Playwright
         run: |
-          python3 -m playwright install chromium
-          python3 -m playwright install-deps chromium
+
+          python -m playwright install-deps chromium
+
+
+      # =====================================================
+      # PREPARAR STREAM
+      # =====================================================
 
       - name: Preparar ambiente
         run: |
+
           mkdir -p stream
 
+          rm -f stream/*.ts
+          rm -f stream/live.m3u8
+
+          echo "Ambiente preparado."
+
+
+      # =====================================================
+      # INICIAR TRANSMISSÃO
+      # =====================================================
+
       - name: Iniciar transmissão
+        env:
+
+          # COLOQUE NO GITHUB:
+          # Settings
+          # Secrets and variables
+          # Actions
+          # New repository secret
+          #
+          # Nome:
+          # NGROK_AUTHTOKEN
+          #
+          # Valor:
+          # seu token do ngrok
+
+          NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
+
+          # COLOQUE A URL REAL DO SEU PAINEL
+          URL_ALVO: "https://SEU-PAINEL.run.app/watch"
+
         run: |
-          python3 app.py
+
+          echo "Iniciando WebTV..."
+
+          python app.py
+
+
+      # =====================================================
+      # DIAGNÓSTICOS SE DER ERRO
+      # =====================================================
+
+      - name: Salvar diagnósticos
+        if: always()
+        run: |
+
+          echo "===== PROCESSOS ====="
+          ps aux | grep -E "ffmpeg|chrome|Xvfb|pulse" || true
+
+          echo ""
+          echo "===== STREAM ====="
+          ls -lah stream || true
+
+          echo ""
+          echo "===== PLAYLIST ====="
+          cat stream/live.m3u8 || true
