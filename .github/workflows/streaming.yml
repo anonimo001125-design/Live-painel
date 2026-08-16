@@ -1,4 +1,3 @@
-
 name: Stream
 
 on:
@@ -26,7 +25,7 @@ jobs:
       # INSTALAR SISTEMA
       # ======================================================
 
-      - name: Instalar sistema
+      - name: Instalar dependências
         run: |
 
           sudo apt-get update
@@ -38,33 +37,37 @@ jobs:
             xvfb \
             xdotool \
             chromium \
-            openssh-client
+            openssh-client \
+            python3-venv
 
 
       # ======================================================
-      # PYPPETEER
+      # PYTHON
       # ======================================================
 
-      - name: Instalar Pyppeteer
+      - name: Instalar Python
         run: |
 
-          python3 -m pip install --upgrade pip
+          python3 -m venv .venv
 
-          pip install pyppeteer
+          .venv/bin/python -m pip install --upgrade pip
+
+          .venv/bin/python -m pip install pyppeteer==2.0.0
 
 
       # ======================================================
-      # VERIFICAR INSTALAÇÕES
+      # VERIFICAR SISTEMA
       # ======================================================
 
-      - name: Verificar sistema
+      - name: Verificar instalações
         run: |
 
           echo "=========================================="
-          echo "FFMPEG"
+          echo "PYTHON"
           echo "=========================================="
 
-          ffmpeg -version
+          .venv/bin/python --version
+
 
           echo "=========================================="
           echo "CHROMIUM"
@@ -72,17 +75,38 @@ jobs:
 
           chromium --version
 
+
+          echo "=========================================="
+          echo "FFMPEG"
+          echo "=========================================="
+
+          ffmpeg -version | head -n 2
+
+
           echo "=========================================="
           echo "PULSEAUDIO"
           echo "=========================================="
 
           pulseaudio --version
 
+
           echo "=========================================="
-          echo "PYTHON"
+          echo "XDOTOOL"
           echo "=========================================="
 
-          python3 --version
+          xdotool --version
+
+
+      # ======================================================
+      # PREPARAR STREAM
+      # ======================================================
+
+      - name: Preparar ambiente
+        run: |
+
+          mkdir -p stream
+
+          echo "Ambiente preparado."
 
 
       # ======================================================
@@ -90,18 +114,23 @@ jobs:
       # ======================================================
 
       - name: Iniciar transmissão
-
         env:
-
-          PYPPETEER_NO_CHROMIUM_DOWNLOAD: "1"
 
           DISPLAY: ":99"
 
           PULSE_SINK: "webtv"
 
+          PYPPETEER_NO_CHROMIUM_DOWNLOAD: "1"
+
         run: |
 
-          python3 app.py
+          set -o pipefail
+
+          echo "=========================================="
+          echo "INICIANDO WEBTV"
+          echo "=========================================="
+
+          .venv/bin/python app.py
 
 
       # ======================================================
@@ -109,9 +138,7 @@ jobs:
       # ======================================================
 
       - name: Salvar diagnósticos
-
         if: always()
-
         uses: actions/upload-artifact@v4
 
         with:
