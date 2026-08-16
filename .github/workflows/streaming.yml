@@ -12,17 +12,9 @@ jobs:
 
     steps:
 
-      # ======================================================
-      # BAIXAR CÓDIGO
-      # ======================================================
-
       - name: Baixar código
         uses: actions/checkout@v4
 
-
-      # ======================================================
-      # DEPENDÊNCIAS DO SISTEMA
-      # ======================================================
 
       - name: Instalar dependências
         run: |
@@ -42,10 +34,6 @@ jobs:
             python3-venv
 
 
-      # ======================================================
-      # AMBIENTE PYTHON
-      # ======================================================
-
       - name: Criar ambiente Python
         run: |
 
@@ -53,10 +41,6 @@ jobs:
 
           ./venv/bin/python -m pip install --upgrade pip
 
-
-      # ======================================================
-      # PYTHON
-      # ======================================================
 
       - name: Instalar Python
         run: |
@@ -66,10 +50,6 @@ jobs:
             pyngrok
 
 
-      # ======================================================
-      # CHROMIUM
-      # ======================================================
-
       - name: Instalar Chromium
         run: |
 
@@ -78,36 +58,33 @@ jobs:
           ./venv/bin/playwright install-deps chromium
 
 
-      # ======================================================
-      # PREPARAR STREAM
-      # ======================================================
-
       - name: Preparar transmissão
         run: |
 
           mkdir -p stream
 
-          echo "Ambiente preparado."
+          echo "=========================================="
+          echo "AMBIENTE PREPARADO"
+          echo "=========================================="
 
           ./venv/bin/python --version
 
           ffmpeg -version | head -n 1
 
 
-      # ======================================================
-      # INICIAR TRANSMISSÃO
-      # ======================================================
-
       - name: Iniciar transmissão
         env:
 
-          # COLOQUE A URL DO SEU PAINEL AQUI
+          # ==================================================
+          # COLOQUE AQUI A URL DO SEU PAINEL
+          # ==================================================
+
           URL_ALVO: "https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch"
 
         run: |
 
-          echo "=============================================="
+          echo "=========================================="
           echo "INICIANDO WEB TV"
-          echo "=============================================="
+          echo "=========================================="
 
           ./venv/bin/python app.py
