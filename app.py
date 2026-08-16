@@ -1,22 +1,18 @@
 import os
+import re
 import sys
 import time
 import signal
+import shutil
 import threading
 import subprocess
-
-# ============================================================
-# CONFIGURAÇÕES
-# ============================================================
 
 STREAM_DIR = "stream"
 
 DISPLAY = ":99"
-
 WIDTH = 1280
 HEIGHT = 720
 FPS = 30
-
 HTTP_PORT = 8080
 
 URL_ALVO = (
@@ -26,58 +22,37 @@ URL_ALVO = (
 
 processos = []
 ffmpeg_process = None
-browser = None
+tunnel_process = None
 
+URL_PUBLICA = None
 
-# ============================================================
-# LOG
-# ============================================================
 
 def log(*args):
     print(*args, flush=True)
 
 
-# ============================================================
-# ENCERRAMENTO
-# ============================================================
-
-def encerrar(signum=None, frame=None):
-    global ffmpeg_process, browser
-
+def encerrar(*args):
     log("")
-    log("============================================================")
-    log("ENCERRANDO TRANSMISSÃO")
-    log("============================================================")
+    log("Encerrando transmissão...")
 
-    try:
-        if ffmpeg_process and ffmpeg_process.poll() is None:
-            ffmpeg_process.terminate()
-    except Exception:
-        pass
-
-    try:
-        if browser:
-            browser.close()
-    except Exception:
-        pass
-
-    for p in processos:
-        try:
-            if p.poll() is None:
-                p.terminate()
-        except Exception:
-            pass
+    for processo in [ffmpeg_process, tunnel_process] + processos:
+        if processo:
+            try:
+                if processo.poll() is None:
+                    processo.terminate()
+            except Exception:
+                pass
 
     time.sleep(2)
 
-    for p in processos:
-        try:
-            if p.poll() is None:
-                p.kill()
-        except Exception:
-            pass
+    for processo in [ffmpeg_process, tunnel_process] + processos:
+        if processo:
+            try:
+                if processo.poll() is None:
+                    processo.kill()
+            except Exception:
+                pass
 
-    log("Transmissão encerrada.")
     sys.exit(0)
 
 
@@ -86,10 +61,10 @@ signal.signal(signal.SIGINT, encerrar)
 
 
 # ============================================================
-# LIMPAR STREAM
+# PREPARAR STREAM
 # ============================================================
 
-def limpar_stream():
+def preparar_stream():
     os.makedirs(STREAM_DIR, exist_ok=True)
 
     for nome in os.listdir(STREAM_DIR):
@@ -101,7 +76,129 @@ def limpar_stream():
         except Exception:
             pass
 
-    log("[OK] Pasta stream preparada.")
+    # Página principal do player.
+    # Ela toca o HLS no navegador usando hls.js.
+    html = r"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport"
+      content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>WebTV</title>
+
+<style>
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    overflow: hidden;
+}
+
+body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+video {
+    width: 100vw;
+    height: 100vh;
+    object-fit: contain;
+    background: #000;
+}
+</style>
+</head>
+
+<body>
+
+<video
+    id="video"
+    controls
+    autoplay
+    playsinline
+    webkit-playsinline>
+</video>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+<script>
+const video = document.getElementById("video");
+const stream = "/live.m3u8";
+
+function iniciar() {
+
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+
+        video.src = stream;
+
+        video.addEventListener("loadedmetadata", () => {
+            video.play().catch(() => {});
+        });
+
+        return;
+    }
+
+    if (window.Hls && Hls.isSupported()) {
+
+        const hls = new Hls({
+            enableWorker: true,
+            lowLatencyMode: false,
+            backBufferLength: 30
+        });
+
+        hls.loadSource(stream);
+        hls.attachMedia(video);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            video.play().catch(() => {});
+        });
+
+        hls.on(Hls.Events.ERROR, function(event, data) {
+
+            if (data.fatal) {
+
+                if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                    hls.startLoad();
+                }
+
+                if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                    hls.recoverMediaError();
+                }
+            }
+        });
+
+        return;
+    }
+
+    document.body.innerHTML =
+        '<div style="color:white;font-family:Arial;text-align:center">' +
+        'Seu navegador não suporta reprodução HLS.' +
+        '</div>';
+}
+
+iniciar();
+</script>
+
+</body>
+</html>
+"""
+
+    with open(
+        os.path.join(STREAM_DIR, "index.html"),
+        "w",
+        encoding="utf-8"
+    ) as f:
+        f.write(html)
+
+    # Arquivo inicial para o HLS
+    with open(
+        os.path.join(STREAM_DIR, "live.m3u8"),
+        "w",
+        encoding="utf-8"
+    ) as f:
+        f.write("#EXTM3U\n")
 
 
 # ============================================================
@@ -110,34 +207,29 @@ def limpar_stream():
 
 def iniciar_xvfb():
 
-    log("[1/7] Iniciando Xvfb...")
+    log("[1] Iniciando Xvfb...")
 
     os.environ["DISPLAY"] = DISPLAY
 
-    xvfb = subprocess.Popen(
-        [
-            "Xvfb",
-            DISPLAY,
-            "-screen",
-            "0",
-            f"{WIDTH}x{HEIGHT}x24",
-            "-ac",
-            "-nolisten",
-            "tcp",
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    processo = subprocess.Popen([
+        "Xvfb",
+        DISPLAY,
+        "-screen",
+        "0",
+        f"{WIDTH}x{HEIGHT}x24",
+        "-ac",
+        "-nolisten",
+        "tcp"
+    ])
 
-    processos.append(xvfb)
+    processos.append(processo)
 
     time.sleep(3)
 
-    if xvfb.poll() is not None:
-        raise RuntimeError("Xvfb não conseguiu iniciar.")
+    if processo.poll() is not None:
+        raise RuntimeError("Xvfb não iniciou.")
 
-    log("[OK] Tela virtual:", DISPLAY)
-    log("[OK] Resolução:", f"{WIDTH}x{HEIGHT}")
+    log("Xvfb OK.")
 
 
 # ============================================================
@@ -146,50 +238,42 @@ def iniciar_xvfb():
 
 def iniciar_audio():
 
-    log("[2/7] Iniciando PulseAudio...")
+    log("[2] Iniciando PulseAudio...")
 
-    pulse_dir = "/tmp/pulse"
+    runtime = "/tmp/pulse"
 
-    os.makedirs(pulse_dir, exist_ok=True)
+    os.makedirs(runtime, exist_ok=True)
 
-    os.environ["PULSE_RUNTIME_PATH"] = pulse_dir
+    os.environ["PULSE_RUNTIME_PATH"] = runtime
     os.environ["PULSE_SINK"] = "webtv"
 
     subprocess.run(
         [
             "pulseaudio",
             "--start",
-            "--exit-idle-time=-1",
+            "--exit-idle-time=-1"
         ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
+        check=False
     )
 
     time.sleep(3)
 
-    info = subprocess.run(
+    resultado = subprocess.run(
         ["pactl", "info"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
+        capture_output=True,
+        text=True
     )
 
-    if info.returncode != 0:
-        raise RuntimeError(
-            "PulseAudio não iniciou:\n" + info.stderr
-        )
+    if resultado.returncode != 0:
+        raise RuntimeError("PulseAudio não iniciou.")
 
     sinks = subprocess.run(
         ["pactl", "list", "short", "sinks"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
+        capture_output=True,
+        text=True
     )
 
     if "webtv" not in sinks.stdout:
-
-        log("[AUDIO] Criando saída virtual...")
 
         criar = subprocess.run(
             [
@@ -197,154 +281,35 @@ def iniciar_audio():
                 "load-module",
                 "module-null-sink",
                 "sink_name=webtv",
-                "sink_properties=device.description=WebTV",
+                "sink_properties=device.description=WebTV"
             ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+            capture_output=True,
+            text=True
         )
 
         if criar.returncode != 0:
-            raise RuntimeError(
-                "Não foi possível criar o áudio virtual:\n"
-                + criar.stderr
-            )
+            log(criar.stderr)
 
     subprocess.run(
         ["pactl", "set-default-sink", "webtv"],
-        check=False,
+        check=False
     )
 
     time.sleep(2)
 
-    sources = subprocess.run(
+    fontes = subprocess.run(
         ["pactl", "list", "short", "sources"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
+        capture_output=True,
+        text=True
     )
 
-    log("[AUDIO] Fontes disponíveis:")
-    log(sources.stdout)
+    log("Fontes de áudio:")
+    log(fontes.stdout)
 
-    if "webtv.monitor" not in sources.stdout:
-        raise RuntimeError(
-            "webtv.monitor não foi encontrado."
-        )
+    if "webtv.monitor" not in fontes.stdout:
+        raise RuntimeError("webtv.monitor não encontrado.")
 
-    log("[OK] Áudio virtual funcionando.")
-
-
-# ============================================================
-# SERVIDOR HTTP
-# ============================================================
-
-def iniciar_servidor():
-
-    log("[3/7] Iniciando servidor HLS...")
-
-    servidor = subprocess.Popen(
-        [
-            "python3",
-            "-m",
-            "http.server",
-            str(HTTP_PORT),
-            "--directory",
-            STREAM_DIR,
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-    processos.append(servidor)
-
-    time.sleep(2)
-
-    if servidor.poll() is not None:
-        raise RuntimeError(
-            "Servidor HTTP não conseguiu iniciar."
-        )
-
-    log(
-        "[OK] Servidor HTTP:",
-        f"http://127.0.0.1:{HTTP_PORT}"
-    )
-
-
-# ============================================================
-# TÚNEL PÚBLICO
-# ============================================================
-
-def iniciar_tunel():
-
-    log("[4/7] Iniciando túnel público...")
-
-    tunnel = subprocess.Popen(
-        [
-            "ssh",
-            "-o",
-            "StrictHostKeyChecking=no",
-            "-o",
-            "ServerAliveInterval=30",
-            "-o",
-            "ServerAliveCountMax=3",
-            "-o",
-            "ExitOnForwardFailure=yes",
-            "-R",
-            f"80:localhost:{HTTP_PORT}",
-            "nokey@localhost.run",
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
-
-    processos.append(tunnel)
-
-    def monitorar():
-
-        try:
-            for linha in iter(tunnel.stdout.readline, ""):
-
-                linha = linha.strip()
-
-                if not linha:
-                    continue
-
-                log("[TUNEL]", linha)
-
-                if "https://" in linha:
-
-                    inicio = linha.find("https://")
-                    url = linha[inicio:].split()[0]
-
-                    log("")
-                    log("============================================================")
-                    log("                 TRANSMISSÃO ONLINE")
-                    log("============================================================")
-                    log("URL:")
-                    log(url)
-                    log("")
-                    log("PLAYER HLS:")
-                    log(url.rstrip("/") + "/live.m3u8")
-                    log("============================================================")
-                    log("")
-
-        except Exception as erro:
-            log("[TUNEL] Monitor:", erro)
-
-    threading.Thread(
-        target=monitorar,
-        daemon=True,
-    ).start()
-
-    time.sleep(5)
-
-    if tunnel.poll() is not None:
-        raise RuntimeError(
-            "O túnel encerrou antes de fornecer a URL."
-        )
+    log("PulseAudio OK.")
 
 
 # ============================================================
@@ -355,41 +320,33 @@ def iniciar_ffmpeg():
 
     global ffmpeg_process
 
-    log("[5/7] Iniciando FFmpeg...")
+    log("[3] Iniciando FFmpeg...")
 
-    audio_input = "webtv.monitor"
+    m3u8 = os.path.join(STREAM_DIR, "live.m3u8")
 
     comando = [
         "ffmpeg",
         "-y",
 
-        # ---------------- AUDIO ----------------
-
+        # ÁUDIO
         "-f",
         "pulse",
-
         "-i",
-        audio_input,
+        "webtv.monitor",
 
-        # ---------------- VIDEO ----------------
-
+        # VÍDEO
         "-f",
         "x11grab",
-
         "-draw_mouse",
         "0",
-
         "-framerate",
         str(FPS),
-
         "-video_size",
         f"{WIDTH}x{HEIGHT}",
-
         "-i",
         f"{DISPLAY}.0",
 
-        # ---------------- VIDEO CODEC ----------------
-
+        # VÍDEO
         "-c:v",
         "libx264",
 
@@ -399,23 +356,22 @@ def iniciar_ffmpeg():
         "-tune",
         "zerolatency",
 
-        "-profile:v",
-        "main",
-
         "-pix_fmt",
         "yuv420p",
+
+        "-profile:v",
+        "main",
 
         "-r",
         str(FPS),
 
         "-g",
-        str(FPS * 2),
+        "60",
 
         "-keyint_min",
-        str(FPS * 2),
+        "60",
 
-        # ---------------- AUDIO CODEC ----------------
-
+        # ÁUDIO
         "-c:a",
         "aac",
 
@@ -425,8 +381,7 @@ def iniciar_ffmpeg():
         "-ar",
         "44100",
 
-        # ---------------- HLS ----------------
-
+        # HLS
         "-f",
         "hls",
 
@@ -437,89 +392,212 @@ def iniciar_ffmpeg():
         "6",
 
         "-hls_flags",
-        "delete_segments+independent_segments",
+        "delete_segments+append_list",
 
         "-hls_segment_filename",
-        os.path.join(
-            STREAM_DIR,
-            "segment_%05d.ts"
-        ),
+        os.path.join(STREAM_DIR, "segment_%05d.ts"),
 
-        os.path.join(
-            STREAM_DIR,
-            "live.m3u8"
-        ),
+        m3u8
     ]
 
     ffmpeg_process = subprocess.Popen(
         comando,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1,
+        stderr=subprocess.STDOUT
     )
 
     time.sleep(5)
 
     if ffmpeg_process.poll() is not None:
+        raise RuntimeError("FFmpeg encerrou.")
 
-        erro = ""
+    log("FFmpeg OK.")
 
-        try:
-            erro = ffmpeg_process.stderr.read()
-        except Exception:
-            pass
 
-        raise RuntimeError(
-            "FFmpeg encerrou.\n" + erro[-5000:]
-        )
+# ============================================================
+# SERVIDOR HTTP
+# ============================================================
 
-    log("[OK] FFmpeg transmitindo.")
-    log(
-        "[OK] HLS:",
-        os.path.join(STREAM_DIR, "live.m3u8")
+def iniciar_http():
+
+    log("[4] Iniciando servidor HTTP...")
+
+    servidor = subprocess.Popen([
+        "python3",
+        "-m",
+        "http.server",
+        str(HTTP_PORT),
+        "--directory",
+        STREAM_DIR,
+        "--bind",
+        "0.0.0.0"
+    ])
+
+    processos.append(servidor)
+
+    time.sleep(2)
+
+    if servidor.poll() is not None:
+        raise RuntimeError("Servidor HTTP não iniciou.")
+
+    log("Servidor HTTP OK na porta", HTTP_PORT)
+
+
+# ============================================================
+# TÚNEL LOCALHOST.RUN
+# ============================================================
+
+def iniciar_tunel():
+
+    global tunnel_process
+    global URL_PUBLICA
+
+    log("")
+    log("[5] Iniciando túnel público...")
+    log("Aguardando URL do localhost.run...")
+    log("")
+
+    comando = [
+        "ssh",
+        "-T",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
+        "-o",
+        "ServerAliveInterval=30",
+        "-o",
+        "ServerAliveCountMax=3",
+        "-o",
+        "ExitOnForwardFailure=yes",
+        "-R",
+        f"80:127.0.0.1:{HTTP_PORT}",
+        "nokey@localhost.run"
+    ]
+
+    tunnel_process = subprocess.Popen(
+        comando,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1
     )
 
+    processos.append(tunnel_process)
+
+    def monitorar():
+
+        global URL_PUBLICA
+
+        try:
+
+            for linha in iter(
+                tunnel_process.stdout.readline,
+                ""
+            ):
+
+                if not linha:
+                    continue
+
+                linha = linha.strip()
+
+                log("[TUNEL]", linha)
+
+                # Procura qualquer URL HTTPS gerada pelo túnel
+                encontrados = re.findall(
+                    r"https://[A-Za-z0-9._-]+\.localhost\.run",
+                    linha
+                )
+
+                if encontrados and URL_PUBLICA is None:
+
+                    URL_PUBLICA = encontrados[0]
+
+                    log("")
+                    log("=" * 70)
+                    log("          TRANSMISSÃO ONLINE")
+                    log("=" * 70)
+                    log("")
+                    log("PLAYER:")
+                    log(URL_PUBLICA)
+                    log("")
+                    log("HLS DIRETO:")
+                    log(URL_PUBLICA.rstrip("/") + "/live.m3u8")
+                    log("")
+                    log("=" * 70)
+                    log("")
+
+        except Exception as erro:
+            log("[TUNEL] Erro:", erro)
+
+    threading.Thread(
+        target=monitorar,
+        daemon=True
+    ).start()
+
+    # Espera a URL aparecer
+    inicio = time.time()
+
+    while URL_PUBLICA is None and time.time() - inicio < 30:
+
+        if tunnel_process.poll() is not None:
+            raise RuntimeError(
+                "localhost.run encerrou antes de fornecer a URL."
+            )
+
+        time.sleep(1)
+
+    if URL_PUBLICA is None:
+
+        log("")
+        log("ATENÇÃO: o túnel iniciou, mas a URL não foi identificada.")
+        log("Verifique as linhas [TUNEL] acima.")
+        log("")
+
 
 # ============================================================
-# NAVEGADOR
+# CHROMIUM
 # ============================================================
 
-def iniciar_navegador():
+def iniciar_chromium():
 
-    global browser
+    log("[6] Iniciando Chromium...")
 
-    log("[6/7] Iniciando Chromium...")
+    from pyppeteer import launch
 
-    from playwright.sync_api import sync_playwright
+    ambiente = os.environ.copy()
 
-    pw = sync_playwright().start()
+    ambiente["DISPLAY"] = DISPLAY
+    ambiente["PULSE_SINK"] = "webtv"
 
-    browser = pw.chromium.launch(
+    navegador = launch(
         headless=False,
 
-        executable_path="/usr/bin/chromium",
+        executablePath="/usr/bin/chromium",
+
+        env=ambiente,
+
+        autoClose=False,
 
         args=[
             "--no-sandbox",
             "--disable-setuid-sandbox",
             "--disable-dev-shm-usage",
 
-            # X11
             "--ozone-platform=x11",
 
-            # Autoplay
-            "--autoplay-policy=no-user-gesture-required",
-
-            # Tela cheia
+            # Tela cheia / quiosque
             "--kiosk",
             "--start-fullscreen",
             "--start-maximized",
 
-            # Janela
-            "--window-position=0,0",
             f"--window-size={WIDTH},{HEIGHT}",
+            "--window-position=0,0",
+
             "--force-device-scale-factor=1",
+
+            # Autoplay
+            "--autoplay-policy=no-user-gesture-required",
 
             # Estabilidade
             "--no-first-run",
@@ -527,86 +605,46 @@ def iniciar_navegador():
             "--disable-popup-blocking",
             "--disable-notifications",
 
-            # Evita economia de recursos
-            "--disable-background-timer-throttling",
-            "--disable-backgrounding-occluded-windows",
-            "--disable-renderer-backgrounding",
-
-            # NÃO desativamos a decodificação de vídeo.
-            # Isso é importante para evitar quebrar reprodução.
-        ],
+            # Não desativar a aceleração de vídeo
+            # porque alguns sites dependem dela.
+            "--use-gl=swiftshader"
+        ]
     )
 
-    page = browser.new_page(
-        viewport={
-            "width": WIDTH,
-            "height": HEIGHT,
-        },
-    )
+    return navegador
 
-    # ========================================================
-    # LOG DO NAVEGADOR
-    # ========================================================
+
+# ============================================================
+# NAVEGADOR ASYNC
+# ============================================================
+
+async def navegador_async():
+
+    navegador = await iniciar_chromium()
+
+    page = await navegador.newPage()
+
+    await page.setViewport({
+        "width": WIDTH,
+        "height": HEIGHT,
+        "deviceScaleFactor": 1
+    })
 
     page.on(
         "console",
-        lambda msg: log(
-            "[BROWSER]",
-            msg.text
-        ),
+        lambda mensagem:
+            log("[BROWSER]", mensagem.text)
     )
 
     page.on(
         "pageerror",
-        lambda erro: log(
-            "[PAGE ERROR]",
-            erro
-        ),
+        lambda erro:
+            log("[PAGE ERROR]", erro)
     )
 
-    # ========================================================
-    # ABRIR SITE
-    # ========================================================
-
     log("")
-    log("[BROWSER] Abrindo:")
+    log("Abrindo:")
     log(URL_ALVO)
+    log("")
 
     try:
-
-        page.goto(
-            URL_ALVO,
-            wait_until="domcontentloaded",
-            timeout=60000,
-        )
-
-    except Exception as erro:
-
-        log(
-            "[BROWSER] Aviso ao abrir:",
-            erro
-        )
-
-    time.sleep(8)
-
-    # ========================================================
-    # GARANTIR TELA CHEIA
-    # ========================================================
-
-    try:
-
-        page.keyboard.press("F11")
-
-        log("[BROWSER] F11 enviado.")
-
-    except Exception as erro:
-
-        log(
-            "[BROWSER] Não foi possível enviar F11:",
-            erro
-        )
-
-    time.sleep(3)
-
-    # ========================================================
-    #
