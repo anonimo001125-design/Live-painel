@@ -27,10 +27,8 @@ jobs:
             pulseaudio \
             pulseaudio-utils \
             xvfb \
-            xdotool \
             chromium \
-            openssh-client \
-            python3-pip
+            openssh-client
 
 
       - name: Instalar Python
@@ -38,15 +36,7 @@ jobs:
 
           python3 -m pip install --upgrade pip
 
-          python3 -m pip install \
-            --break-system-packages \
-            playwright
-
-
-      - name: Instalar Chromium Playwright
-        run: |
-
-          playwright install chromium
+          python3 -m pip install pyppeteer
 
 
       - name: Verificar sistema
@@ -54,31 +44,25 @@ jobs:
 
           echo "========================================"
           echo "PYTHON"
-          echo "========================================"
-
           python3 --version
 
           echo "========================================"
-          echo "FFMPEG"
-          echo "========================================"
-
-          ffmpeg -version | head -n 2
-
-          echo "========================================"
           echo "CHROMIUM"
-          echo "========================================"
-
           chromium --version
 
           echo "========================================"
-          echo "PULSEAUDIO"
-          echo "========================================"
+          echo "FFMPEG"
+          ffmpeg -version | head -n 1
 
-          pulseaudio --version
+          echo "========================================"
+          echo "SSH"
+          ssh -V
 
 
       - name: Preparar ambiente
         run: |
+
+          rm -rf stream
 
           mkdir -p stream
 
@@ -92,6 +76,8 @@ jobs:
 
           PULSE_SINK: "webtv"
 
+          PYPPETEER_NO_CHROMIUM_DOWNLOAD: "1"
+
         run: |
 
           echo "========================================"
@@ -103,11 +89,27 @@ jobs:
 
       - name: Salvar diagnósticos
         if: always()
-        uses: actions/upload-artifact@v4
+        run: |
 
+          echo "===== PROCESSOS ====="
+
+          ps aux | grep -E \
+            'ffmpeg|chromium|Xvfb|pulseaudio|ssh' \
+            | grep -v grep \
+            || true
+
+          echo "===== STREAM ====="
+
+          ls -lah stream/ \
+            || true
+
+
+      - name: Salvar arquivos da transmissão
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
 
-          name: webtv-debug
+          name: webtv-stream
 
           path: stream/
 
