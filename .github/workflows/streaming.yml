@@ -12,7 +12,7 @@ jobs:
 
     env:
       PYTHONUNBUFFERED: "1"
-      URL_ALVO: "https://SEU-PAINEL-AQUI.com"
+      URL_ALVO: "https://ais-pre-czbrtxxjttcqeqhdn3kw3n-102718744012.us-east5.run.app/watch"
 
     steps:
 
