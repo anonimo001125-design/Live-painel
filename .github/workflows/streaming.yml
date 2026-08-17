@@ -13,19 +13,11 @@ jobs:
 
     steps:
 
-      # ======================================================
-      # BAIXAR PROJETO
-      # ======================================================
-
       - name: Baixar codigo
         uses: actions/checkout@v4
 
 
-      # ======================================================
-      # INSTALAR DEPENDENCIAS
-      # ======================================================
-
-      - name: Instalar sistema
+      - name: Instalar dependencias
         run: |
 
           sudo apt-get update
@@ -38,16 +30,11 @@ jobs:
             xdotool \
             chromium \
             python3-pip \
-            openssh-client \
             wget \
             ca-certificates
 
 
-      # ======================================================
-      # CLOUDFLARED
-      # ======================================================
-
-      - name: Instalar Cloudflare Tunnel
+      - name: Instalar Cloudflared
         run: |
 
           sudo wget -q \
@@ -59,76 +46,40 @@ jobs:
           cloudflared --version
 
 
-      # ======================================================
-      # PYPPETEER
-      # ======================================================
-
-      - name: Instalar Pyppeteer
+      - name: Instalar Playwright
         run: |
 
           python3 -m pip install --upgrade pip
 
-          pip install pyppeteer
+          pip install playwright
 
 
-      # ======================================================
-      # NÃO BAIXAR OUTRO CHROMIUM
-      #
-      # O app.py usa:
-      # /usr/bin/chromium
-      #
-      # Portanto usamos o Chromium instalado pelo Ubuntu.
-      # ======================================================
-
-      - name: Verificar Chromium
+      - name: Verificar sistema
         run: |
 
-          which chromium
-
-          chromium --version
-
-
-      # ======================================================
-      # VERIFICAR FFMPEG
-      # ======================================================
-
-      - name: Verificar FFmpeg
-        run: |
-
-          ffmpeg -version
-
-
-      # ======================================================
-      # VERIFICAR PYTHON
-      # ======================================================
-
-      - name: Verificar Python
-        run: |
-
+          echo "========== PYTHON =========="
           python3 --version
 
+          echo "========== CHROMIUM =========="
+          chromium --version
 
-      # ======================================================
-      # VERIFICAR SINTAXE
-      # ======================================================
+          echo "========== FFMPEG =========="
+          ffmpeg -version
 
-      - name: Verificar app.py
+          echo "========== CLOUDFLARED =========="
+          cloudflared --version
+
+
+      - name: Verificar codigo
         run: |
 
           python3 -m py_compile app.py
 
-          echo "app.py OK"
+          echo "Codigo OK"
 
-
-      # ======================================================
-      # INICIAR TRANSMISSAO
-      # ======================================================
 
       - name: Iniciar transmissao
-
         env:
-
-          PYPPETEER_NO_CHROMIUM_DOWNLOAD: "1"
 
           DISPLAY: ":99"
 
@@ -139,12 +90,7 @@ jobs:
           python3 app.py
 
 
-      # ======================================================
-      # SALVAR DEBUG
-      # ======================================================
-
-      - name: Salvar arquivos de debug
-
+      - name: Salvar debug
         if: always()
 
         uses: actions/upload-artifact@v4
