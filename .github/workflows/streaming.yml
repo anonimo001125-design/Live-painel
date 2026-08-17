@@ -13,9 +13,8 @@ jobs:
 
     steps:
 
-      - name: Baixar código
+      - name: Baixar codigo
         uses: actions/checkout@v4
-
 
       - name: Instalar sistema
         run: |
@@ -28,97 +27,70 @@ jobs:
             pulseaudio-utils \
             xvfb \
             chromium \
-            openssh-client
+            python3-pip \
+            wget \
+            ca-certificates
 
+      - name: Instalar Cloudflare
+        run: |
 
-      - name: Instalar Python
+          sudo wget -q \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+            -O /usr/local/bin/cloudflared
+
+          sudo chmod +x /usr/local/bin/cloudflared
+
+          cloudflared --version
+
+      - name: Instalar Playwright
         run: |
 
           python3 -m pip install --upgrade pip
 
-          python3 -m pip install pyppeteer
+          pip install playwright
 
+      - name: Instalar navegador do Playwright
+        run: |
+
+          playwright install chromium
 
       - name: Verificar sistema
         run: |
 
-          echo "========================================"
-          echo "PYTHON"
           python3 --version
 
-          echo "========================================"
-          echo "CHROMIUM"
+          ffmpeg -version
+
           chromium --version
 
-          echo "========================================"
-          echo "FFMPEG"
-          ffmpeg -version | head -n 1
+          cloudflared --version
 
-          echo "========================================"
-          echo "PULSEAUDIO"
-          pulseaudio --version
-
-          echo "========================================"
-          echo "SSH"
-          ssh -V
-
-
-      - name: Preparar ambiente
+      - name: Verificar sintaxe
         run: |
 
-          rm -rf stream
+          python3 -m py_compile app.py
 
-          mkdir -p stream
+          echo "Sintaxe OK"
 
-          echo "Ambiente preparado."
-
-
-      - name: Iniciar transmissão
+      - name: Iniciar transmissao
         env:
 
           DISPLAY: ":99"
 
-          PULSE_SINK: "webtv"
-
-          PYPPETEER_NO_CHROMIUM_DOWNLOAD: "1"
+          PYTHONUNBUFFERED: "1"
 
         run: |
-
-          echo "========================================"
-          echo "INICIANDO WEBTV"
-          echo "========================================"
 
           python3 app.py
 
-
-      - name: Salvar diagnósticos
+      - name: Salvar diagnosticos
         if: always()
-        run: |
 
-          echo "========================================"
-          echo "PROCESSOS"
-          echo "========================================"
-
-          ps aux | grep -E \
-            'ffmpeg|chromium|Xvfb|pulseaudio|ssh' \
-            | grep -v grep \
-            || true
-
-
-          echo "========================================"
-          echo "STREAM"
-          echo "========================================"
-
-          ls -lah stream/ || true
-
-
-      - name: Salvar arquivos da transmissão
-        if: always()
         uses: actions/upload-artifact@v4
 
         with:
 
-          name: webtv-stream
+          name: webtv-debug
 
           path: stream/
 
