@@ -123,8 +123,3 @@ jobs:
           path: stream/
 
           if-no-files-found: ignore
-          name: webtv-stream
-
-          path: stream/
-
-          if-no-files-found: ignore
