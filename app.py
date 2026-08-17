@@ -648,3 +648,205 @@ async def navegador_async():
     log("")
 
     try:
+
+        await page.goto(
+            URL_ALVO,
+            {
+                "waitUntil": "domcontentloaded",
+                "timeout": 60000
+            }
+        )
+
+    except Exception as erro:
+
+        log("[BROWSER] Aviso ao abrir:", erro)
+
+    await asyncio.sleep(10)
+
+    # --------------------------------------------------------
+    # Tenta tela cheia pelo JavaScript
+    # --------------------------------------------------------
+
+    try:
+
+        await page.evaluate(
+            """
+            () => {
+                const el = document.documentElement;
+
+                if (el.requestFullscreen) {
+                    el.requestFullscreen().catch(() => {});
+                }
+            }
+            """
+        )
+
+    except Exception:
+        pass
+
+    # --------------------------------------------------------
+    # Clica no centro
+    # --------------------------------------------------------
+
+    try:
+
+        await page.mouse.click(
+            WIDTH // 2,
+            HEIGHT // 2
+        )
+
+    except Exception:
+        pass
+
+    await asyncio.sleep(3)
+
+    # --------------------------------------------------------
+    # Força vídeos existentes a tentar reproduzir
+    # --------------------------------------------------------
+
+    try:
+
+        resultado = await page.evaluate(
+            """
+            async () => {
+
+                const videos =
+                    Array.from(
+                        document.querySelectorAll("video")
+                    );
+
+                const resposta = [];
+
+                for (const video of videos) {
+
+                    try {
+
+                        video.playsInline = true;
+                        video.autoplay = true;
+
+                        const p = video.play();
+
+                        if (p) {
+                            await p;
+                        }
+
+                        resposta.push({
+                            ok: true,
+                            paused: video.paused,
+                            readyState: video.readyState,
+                            width: video.videoWidth,
+                            height: video.videoHeight,
+                            currentSrc: video.currentSrc
+                        });
+
+                    } catch (e) {
+
+                        resposta.push({
+                            ok: false,
+                            erro: String(e),
+                            paused: video.paused,
+                            readyState: video.readyState,
+                            width: video.videoWidth,
+                            height: video.videoHeight,
+                            currentSrc: video.currentSrc
+                        });
+                    }
+                }
+
+                return resposta;
+            }
+            """
+        )
+
+        log("[PLAYER]", resultado)
+
+    except Exception as erro:
+
+        log("[PLAYER] Erro:", erro)
+
+    # --------------------------------------------------------
+    # Mantém o navegador vivo
+    # --------------------------------------------------------
+
+    while True:
+
+        await asyncio.sleep(5)
+
+        try:
+
+            # Verifica se existe vídeo e tenta reproduzir
+            await page.evaluate(
+                """
+                () => {
+
+                    document
+                        .querySelectorAll("video")
+                        .forEach(video => {
+
+                            if (video.paused && !video.ended) {
+                                video.play().catch(() => {});
+                            }
+
+                        });
+                }
+                """
+            )
+
+        except Exception:
+            pass
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def iniciar():
+
+    log("")
+    log("=" * 70)
+    log("                 INICIANDO WEBTV")
+    log("=" * 70)
+    log("")
+
+    preparar_stream()
+
+    iniciar_xvfb()
+
+    iniciar_audio()
+
+    iniciar_http()
+
+    iniciar_ffmpeg()
+
+    iniciar_tunel()
+
+    log("")
+    log("=" * 70)
+
+    if URL_PUBLICA:
+
+        log("TRANSMISSÃO PRONTA!")
+        log("")
+        log("ABRA ESTE LINK NO CELULAR:")
+        log(URL_PUBLICA)
+        log("")
+        log("LINK HLS DIRETO:")
+        log(URL_PUBLICA.rstrip("/") + "/live.m3u8")
+
+    else:
+
+        log("URL pública ainda não encontrada.")
+
+    log("=" * 70)
+    log("")
+
+    # Chromium precisa ficar em loop.
+    import asyncio
+
+    asyncio.get_event_loop().run_until_complete(
+        navegador_async()
+    )
+
+
+if __name__ == "__main__":
+    iniciar()
