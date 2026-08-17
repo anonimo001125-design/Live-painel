@@ -1,22 +1,18 @@
 import os
 import re
+import signal
+import subprocess
 import sys
 import time
-import signal
-import shutil
-import threading
-import subprocess
-from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+from pathlib import Path
 
-# ============================================================
-# CONFIGURAÇÃO
-# ============================================================
+STREAM_DIR = Path("stream")
 
-STREAM_DIR = os.path.abspath("stream")
 DISPLAY = ":99"
 
 WIDTH = 1280
 HEIGHT = 720
+
 FPS = 30
 
 HTTP_PORT = 8080
@@ -27,87 +23,69 @@ URL_ALVO = (
 )
 
 processes = []
-tunnel_process = None
-ffmpeg_process = None
+ffmpeg = None
+public_url = None
 
 
-# ============================================================
-# LOG
-# ============================================================
-
-def log(text=""):
-    print(text, flush=True)
+def log(msg):
+    print(msg, flush=True)
 
 
-# ============================================================
-# ENCERRAMENTO
-# ============================================================
+def stop_process(process):
+    if process and process.poll() is None:
+        try:
+            process.terminate()
+            process.wait(timeout=3)
+        except Exception:
+            try:
+                process.kill()
+            except Exception:
+                pass
 
-def stop_all(signum=None, frame=None):
-    global tunnel_process
-    global ffmpeg_process
 
+def cleanup(*_):
     log("")
-    log("ENCERRANDO...")
+    log("=" * 60)
+    log("ENCERRANDO TRANSMISSAO")
+    log("=" * 60)
 
-    for proc in [ffmpeg_process, tunnel_process] + processes:
-        if proc is None:
-            continue
+    stop_process(ffmpeg)
 
-        try:
-            if proc.poll() is None:
-                proc.terminate()
-        except Exception:
-            pass
-
-    time.sleep(2)
-
-    for proc in [ffmpeg_process, tunnel_process] + processes:
-        if proc is None:
-            continue
-
-        try:
-            if proc.poll() is None:
-                proc.kill()
-        except Exception:
-            pass
+    for process in reversed(processes):
+        stop_process(process)
 
     sys.exit(0)
 
 
-signal.signal(signal.SIGTERM, stop_all)
-signal.signal(signal.SIGINT, stop_all)
+signal.signal(signal.SIGTERM, cleanup)
+signal.signal(signal.SIGINT, cleanup)
 
 
-# ============================================================
-# PREPARAR STREAM
-# ============================================================
-
-def prepare_stream():
-    os.makedirs(STREAM_DIR, exist_ok=True)
-
-    for name in os.listdir(STREAM_DIR):
-        path = os.path.join(STREAM_DIR, name)
-
-        try:
-            if os.path.isfile(path):
-                os.remove(path)
-        except Exception:
-            pass
-
-    log("Stream preparado.")
+def start_process(command, **kwargs):
+    process = subprocess.Popen(command, **kwargs)
+    processes.append(process)
+    return process
 
 
-# ============================================================
-# XVFB
-# ============================================================
+def prepare_environment():
+    STREAM_DIR.mkdir(exist_ok=True)
+
+    for item in STREAM_DIR.glob("*"):
+        if item.is_file():
+            try:
+                item.unlink()
+            except Exception:
+                pass
+
+    log("Ambiente preparado.")
+
 
 def start_xvfb():
-    log("Iniciando Xvfb...")
+    log("[1] Iniciando Xvfb...")
 
     os.environ["DISPLAY"] = DISPLAY
 
-    proc = subprocess.Popen(
+    process = start_process(
         [
             "Xvfb",
             DISPLAY,
@@ -119,27 +97,21 @@ def start_xvfb():
             "tcp",
         ],
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.STDOUT,
     )
-
-    processes.append(proc)
 
     time.sleep(3)
 
-    if proc.poll() is not None:
-        raise RuntimeError("Xvfb não iniciou.")
+    if process.poll() is not None:
+        raise RuntimeError("Xvfb nao iniciou.")
 
     log("Xvfb OK.")
 
 
-# ============================================================
-# PULSEAUDIO
-# ============================================================
+def start_pulseaudio():
+    log("[2] Iniciando PulseAudio...")
 
-def start_pulse():
-    log("Iniciando PulseAudio...")
-
-    runtime = "/tmp/pulse-runtime"
+    runtime = "/tmp/pulse"
 
     os.makedirs(runtime, exist_ok=True)
 
@@ -148,33 +120,57 @@ def start_pulse():
     subprocess.run(
         [
             "pulseaudio",
-            "--start",
-            "--daemonize=true",
-            "--exit-idle-time=-1",
+            "--kill",
         ],
-        check=False,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        check=False,
+    )
+
+    subprocess.run(
+        [
+            "pulseaudio",
+            "--start",
+            "--exit-idle-time=-1",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
     )
 
     time.sleep(3)
 
     info = subprocess.run(
-        ["pactl", "info"],
+        [
+            "pactl",
+            "info",
+        ],
         capture_output=True,
         text=True,
+        check=False,
     )
 
     if info.returncode != 0:
-        raise RuntimeError("PulseAudio não iniciou.")
+        raise RuntimeError(
+            "PulseAudio nao iniciou: "
+            + info.stderr
+        )
 
     sinks = subprocess.run(
-        ["pactl", "list", "short", "sinks"],
+        [
+            "pactl",
+            "list",
+            "short",
+            "sinks",
+        ],
         capture_output=True,
         text=True,
-    )
+        check=False,
+    ).stdout
 
-    if "webtv" not in sinks.stdout:
+    if "webtv" not in sinks:
+        log("Criando sink de audio WebTV...")
+
         result = subprocess.run(
             [
                 "pactl",
@@ -185,9 +181,56 @@ def start_pulse():
             ],
             capture_output=True,
             text=True,
+            check=False,
         )
 
         if result.returncode != 0:
             raise RuntimeError(
-                "Não foi possível criar o áudio virtual WebTV."
-           
+                "Nao foi possivel criar o sink WebTV: "
+                + result.stderr
+            )
+
+    subprocess.run(
+        [
+            "pactl",
+            "set-default-sink",
+            "webtv",
+        ],
+        check=False,
+    )
+
+    os.environ["PULSE_SINK"] = "webtv"
+
+    sources = subprocess.run(
+        [
+            "pactl",
+            "list",
+            "short",
+            "sources",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout
+
+    if "webtv.monitor" not in sources:
+        raise RuntimeError(
+            "webtv.monitor nao foi encontrado."
+        )
+
+    log("PulseAudio OK.")
+
+
+def start_http_server():
+    log("[3] Iniciando servidor HTTP...")
+
+    process = start_process(
+        [
+            sys.executable,
+            "-m",
+            "http.server",
+            str(HTTP_PORT),
+            "--directory",
+            str(STREAM_DIR),
+        ],
+        stdout=subprocess
