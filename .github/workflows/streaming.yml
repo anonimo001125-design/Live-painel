@@ -27,11 +27,12 @@ jobs:
             pulseaudio \
             pulseaudio-utils \
             xvfb \
+            xdotool \
             chromium \
             openssh-client
 
 
-      - name: Instalar Python
+      - name: Instalar Pyppeteer
         run: |
 
           python3 -m pip install --upgrade pip
@@ -42,31 +43,33 @@ jobs:
       - name: Verificar sistema
         run: |
 
-          echo "========================================"
+          echo "=========================================="
           echo "PYTHON"
+          echo "=========================================="
+
           python3 --version
 
-          echo "========================================"
+          echo "=========================================="
+          echo "FFMPEG"
+          echo "=========================================="
+
+          ffmpeg -version | head -n 3
+
+          echo "=========================================="
           echo "CHROMIUM"
+          echo "=========================================="
+
           chromium --version
 
-          echo "========================================"
-          echo "FFMPEG"
-          ffmpeg -version | head -n 1
-
-          echo "========================================"
+          echo "=========================================="
           echo "PULSEAUDIO"
-          pulseaudio --version
+          echo "=========================================="
 
-          echo "========================================"
-          echo "SSH"
-          ssh -V
+          pulseaudio --version
 
 
       - name: Preparar ambiente
         run: |
-
-          rm -rf stream
 
           mkdir -p stream
 
@@ -76,46 +79,55 @@ jobs:
       - name: Iniciar transmissão
         env:
 
+          PYPPETEER_NO_CHROMIUM_DOWNLOAD: "1"
+
           DISPLAY: ":99"
 
           PULSE_SINK: "webtv"
 
-          PYPPETEER_NO_CHROMIUM_DOWNLOAD: "1"
-
         run: |
 
-          echo "========================================"
+          echo "=========================================="
           echo "INICIANDO WEBTV"
-          echo "========================================"
+          echo "=========================================="
 
-          python3 app.py
+          python3 -u app.py
 
 
       - name: Salvar diagnósticos
         if: always()
         run: |
 
-          echo "========================================"
+          echo "=========================================="
           echo "PROCESSOS"
-          echo "========================================"
+          echo "=========================================="
 
           ps aux | grep -E \
-            'ffmpeg|chromium|Xvfb|pulseaudio|ssh' \
-            | grep -v grep \
+            "ffmpeg|chromium|Xvfb|pulseaudio|http.server|ssh" \
             || true
 
-
-          echo "========================================"
+          echo "=========================================="
           echo "STREAM"
-          echo "========================================"
+          echo "=========================================="
 
           ls -lah stream/ || true
+
+          echo "=========================================="
+          echo "PLAYLIST"
+          echo "=========================================="
+
+          cat stream/live.m3u8 2>/dev/null || true
+
+          echo "=========================================="
+          echo "LINK"
+          echo "=========================================="
+
+          cat stream/LINK_DA_TRANSMISSAO.txt 2>/dev/null || true
 
 
       - name: Salvar arquivos da transmissão
         if: always()
         uses: actions/upload-artifact@v4
-
         with:
 
           name: webtv-stream
