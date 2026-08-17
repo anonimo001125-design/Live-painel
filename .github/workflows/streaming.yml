@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
 
 jobs:
+
   run-stream:
 
     runs-on: ubuntu-24.04
@@ -30,64 +31,70 @@ jobs:
             curl
 
 
+      - name: Verificar sistema
+        run: |
+
+          echo "========================================"
+          echo "CHROMIUM"
+          echo "========================================"
+
+          chromium --version
+
+          echo "========================================"
+          echo "FFMPEG"
+          echo "========================================"
+
+          ffmpeg -version | head -n 1
+
+          echo "========================================"
+          echo "PULSEAUDIO"
+          echo "========================================"
+
+          pulseaudio --version
+
+          echo "========================================"
+          echo "PYTHON"
+          echo "========================================"
+
+          python3 --version
+
+
       - name: Instalar Cloudflare Tunnel
         run: |
 
           curl -L \
-            --output cloudflared.deb \
-            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+            --fail \
+            --retry 3 \
+            --retry-delay 2 \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+            -o /tmp/cloudflared
 
-          sudo dpkg -i cloudflared.deb
+          sudo install \
+            -m 0755 \
+            /tmp/cloudflared \
+            /usr/local/bin/cloudflared
 
           cloudflared --version
 
 
-      - name: Instalar Python
+      - name: Instalar Playwright
         run: |
 
-          python3 -m pip install --upgrade pip
+          python3 -m venv .venv
 
-          pip install playwright
+          . .venv/bin/activate
+
+          python -m pip install --upgrade pip
+
+          python -m pip install playwright
 
 
       - name: Instalar navegador Playwright
         run: |
 
-          python3 -m playwright install chromium
+          . .venv/bin/activate
 
-
-      - name: Verificar sistema
-        run: |
-
-          echo "======================================"
-          echo "PYTHON"
-          echo "======================================"
-
-          python3 --version
-
-          echo "======================================"
-          echo "FFMPEG"
-          echo "======================================"
-
-          ffmpeg -version | head -n 2
-
-          echo "======================================"
-          echo "CHROMIUM"
-          echo "======================================"
-
-          chromium --version
-
-          echo "======================================"
-          echo "CLOUDFLARED"
-          echo "======================================"
-
-          cloudflared --version
-
-          echo "======================================"
-          echo "PLAYWRIGHT"
-          echo "======================================"
-
-          python3 -c "from playwright.sync_api import sync_playwright; print('Playwright OK')"
+          python -m playwright install chromium
 
 
       - name: Preparar ambiente
@@ -101,12 +108,17 @@ jobs:
       - name: Verificar sintaxe
         run: |
 
-          python3 -m py_compile app.py
+          . .venv/bin/activate
 
-          echo "Sintaxe do app.py OK."
+          python -m py_compile app.py
+
+          echo "========================================"
+          echo "SINTAXE OK"
+          echo "========================================"
 
 
       - name: Iniciar transmissão
+
         env:
 
           DISPLAY: ":99"
@@ -115,15 +127,15 @@ jobs:
 
         run: |
 
-          echo "======================================"
-          echo "INICIANDO WEBTV"
-          echo "======================================"
+          . .venv/bin/activate
 
-          python3 app.py
+          python app.py
 
 
       - name: Salvar transmissão
+
         if: always()
+
         uses: actions/upload-artifact@v4
 
         with:
@@ -133,22 +145,3 @@ jobs:
           path: stream/
 
           if-no-files-found: ignore
-
-
-      - name: Salvar diagnósticos
-        if: always()
-        run: |
-
-          echo "===== PROCESSOS ====="
-
-          ps aux | grep -E \
-            "ffmpeg|chromium|Xvfb|pulseaudio|cloudflared" \
-            || true
-
-          echo "===== STREAM ====="
-
-          ls -lah stream/ || true
-
-          echo "===== HLS ====="
-
-          cat stream/live.m3u8 2>/dev/null || true
