@@ -97,10 +97,23 @@ jobs:
           python -m playwright install chromium
 
 
+      - name: Baixar HLS.js
+        run: |
+
+          curl -L \
+            --fail \
+            --retry 3 \
+            https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js \
+            -o stream_hls.min.js
+
+
       - name: Preparar ambiente
         run: |
 
           mkdir -p stream
+
+          cp stream_hls.min.js \
+             stream/hls.min.js
 
           echo "Ambiente preparado."
 
@@ -112,13 +125,14 @@ jobs:
 
           python -m py_compile app.py
 
+          echo ""
           echo "========================================"
-          echo "SINTAXE OK"
+          echo "SINTAXE DO APP.PY OK"
           echo "========================================"
+          echo ""
 
 
       - name: Iniciar transmissão
-
         env:
 
           DISPLAY: ":99"
@@ -133,9 +147,7 @@ jobs:
 
 
       - name: Salvar transmissão
-
         if: always()
-
         uses: actions/upload-artifact@v4
 
         with:
