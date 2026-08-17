@@ -1,13 +1,13 @@
 import os
+import re
 import sys
 import time
-import asyncio
 import signal
+import shutil
 import subprocess
 import threading
-import re
 
-from pyppeteer import launch
+from playwright.sync_api import sync_playwright
 
 
 # ============================================================
@@ -33,15 +33,16 @@ URL_ALVO = (
 processos = []
 
 ffmpeg_process = None
-browser_global = None
+tunnel_process = None
+browser = None
 
 
 # ============================================================
 # LOG
 # ============================================================
 
-def log(*mensagens):
-    print(*mensagens, flush=True)
+def log(*args):
+    print(*args, flush=True)
 
 
 # ============================================================
@@ -50,9 +51,19 @@ def log(*mensagens):
 
 def encerrar(*args):
     log("")
-    log("Encerrando transmissão...")
+    log("==============================================")
+    log("ENCERRANDO WEBTV")
+    log("==============================================")
 
     global ffmpeg_process
+    global tunnel_process
+    global browser
+
+    try:
+        if browser:
+            browser.close()
+    except Exception:
+        pass
 
     try:
         if ffmpeg_process and ffmpeg_process.poll() is None:
@@ -60,19 +71,25 @@ def encerrar(*args):
     except Exception:
         pass
 
-    for processo in processos:
+    try:
+        if tunnel_process and tunnel_process.poll() is None:
+            tunnel_process.terminate()
+    except Exception:
+        pass
+
+    for p in processos:
         try:
-            if processo.poll() is None:
-                processo.terminate()
+            if p.poll() is None:
+                p.terminate()
         except Exception:
             pass
 
     time.sleep(2)
 
-    for processo in processos:
+    for p in processos:
         try:
-            if processo.poll() is None:
-                processo.kill()
+            if p.poll() is None:
+                p.kill()
         except Exception:
             pass
 
@@ -100,88 +117,7 @@ def preparar_stream():
         except Exception:
             pass
 
-    log("Pasta stream preparada.")
-
-
-# ============================================================
-# PÁGINA DO PLAYER
-# ============================================================
-
-def criar_player():
-
-    html = "\n".join([
-        "<!DOCTYPE html>",
-        "<html lang='pt-BR'>",
-        "<head>",
-        "<meta charset='UTF-8'>",
-        "<meta name='viewport' content='width=device-width,initial-scale=1'>",
-        "<title>WebTV</title>",
-        "<style>",
-        "html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden}",
-        "video{width:100%;height:100%;object-fit:contain;background:#000}",
-        "#msg{position:fixed;top:10px;left:10px;color:white;font:14px Arial;z-index:10}",
-        "</style>",
-        "</head>",
-        "<body>",
-        "<div id='msg'>Carregando transmissão...</div>",
-        "<video id='video' controls autoplay playsinline></video>",
-        "<script src='https://cdn.jsdelivr.net/npm/hls.js@latest'></script>",
-        "<script>",
-        "const video=document.getElementById('video');",
-        "const msg=document.getElementById('msg');",
-        "const src='live.m3u8';",
-        "",
-        "function iniciar(){",
-        "  if(video.canPlayType('application/vnd.apple.mpegurl')){",
-        "    video.src=src;",
-        "    video.play().catch(()=>{});",
-        "    msg.style.display='none';",
-        "    return;",
-        "  }",
-        "",
-        "  if(window.Hls && Hls.isSupported()){",
-        "    const hls=new Hls({",
-        "      liveSyncDurationCount:3,",
-        "      maxLiveSyncPlaybackRate:1.5,",
-        "      enableWorker:true",
-        "    });",
-        "",
-        "    hls.loadSource(src);",
-        "    hls.attachMedia(video);",
-        "",
-        "    hls.on(Hls.Events.MANIFEST_PARSED,function(){",
-        "      video.play().then(()=>{",
-        "        msg.style.display='none';",
-        "      }).catch(()=>{});",
-        "    });",
-        "",
-        "    hls.on(Hls.Events.ERROR,function(event,data){",
-        "      if(data.fatal){",
-        "        setTimeout(()=>{",
-        "          try{hls.destroy();}catch(e){}",
-        "          location.reload();",
-        "        },3000);",
-        "      }",
-        "    });",
-        "",
-        "    return;",
-        "  }",
-        "",
-        "  msg.textContent='Este navegador não suporta HLS.';",
-        "}",
-        "",
-        "iniciar();",
-        "</script>",
-        "</body>",
-        "</html>"
-    ])
-
-    caminho = os.path.join(STREAM_DIR, "index.html")
-
-    with open(caminho, "w", encoding="utf-8") as arquivo:
-        arquivo.write(html)
-
-    log("Player criado:", caminho)
+    log("Stream preparado.")
 
 
 # ============================================================
@@ -189,39 +125,43 @@ def criar_player():
 # ============================================================
 
 def iniciar_xvfb():
-
-    log("Iniciando Xvfb...")
+    log("")
+    log("[1] Iniciando Xvfb...")
 
     os.environ["DISPLAY"] = DISPLAY
 
-    xvfb = subprocess.Popen([
-        "Xvfb",
-        DISPLAY,
-        "-screen",
-        "0",
-        f"{WIDTH}x{HEIGHT}x24",
-        "-ac",
-        "-nolisten",
-        "tcp"
-    ])
+    p = subprocess.Popen(
+        [
+            "Xvfb",
+            DISPLAY,
+            "-screen",
+            "0",
+            f"{WIDTH}x{HEIGHT}x24",
+            "-ac",
+            "-nolisten",
+            "tcp"
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
 
-    processos.append(xvfb)
+    processos.append(p)
 
     time.sleep(3)
 
-    if xvfb.poll() is not None:
+    if p.poll() is not None:
         raise RuntimeError("Xvfb não iniciou.")
 
-    log("Xvfb OK.")
+    log("Xvfb OK:", DISPLAY)
 
 
 # ============================================================
 # PULSEAUDIO
 # ============================================================
 
-def iniciar_audio():
-
-    log("Iniciando PulseAudio...")
+def iniciar_pulseaudio():
+    log("")
+    log("[2] Preparando PulseAudio...")
 
     os.environ["PULSE_SINK"] = "webtv"
 
@@ -231,30 +171,146 @@ def iniciar_audio():
             "--start",
             "--exit-idle-time=-1"
         ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
         check=False
     )
 
     time.sleep(3)
 
-    info = subprocess.run(
+    teste = subprocess.run(
         ["pactl", "info"],
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True
     )
 
-    if info.returncode != 0:
+    if teste.returncode != 0:
         raise RuntimeError(
-            "PulseAudio não iniciou:\n" + info.stderr
+            "PulseAudio não está disponível."
         )
 
     sinks = subprocess.run(
         ["pactl", "list", "short", "sinks"],
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True
     )
 
     if "webtv" not in sinks.stdout:
+        log("Criando sink de áudio webtv...")
 
-        log("Criando áudio virtual...")
+        criar = subprocess.run(
+            [
+                "pactl",
+                "load-module",
+                "module-null-sink",
+                "sink_name=webtv",
+                "sink_properties=device.description=WebTV"
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
 
-        resultado = subprocess.run(
+        if criar.returncode != 0:
+            raise RuntimeError(
+                "Não foi possível criar o sink webtv: "
+                + criar.stderr
+            )
+
+    subprocess.run(
+        ["pactl", "set-default-sink", "webtv"],
+        check=False
+    )
+
+    time.sleep(2)
+
+    fontes = subprocess.run(
+        ["pactl", "list", "short", "sources"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
+
+    log("Fontes PulseAudio:")
+    log(fontes.stdout)
+
+    if "webtv.monitor" not in fontes.stdout:
+        raise RuntimeError(
+            "webtv.monitor não foi encontrado."
+        )
+
+    log("PulseAudio OK.")
+
+
+# ============================================================
+# SERVIDOR HTTP
+# ============================================================
+
+def iniciar_servidor():
+    log("")
+    log("[3] Iniciando servidor HTTP...")
+
+    servidor = subprocess.Popen(
+        [
+            "python3",
+            "-m",
+            "http.server",
+            str(HTTP_PORT),
+            "--directory",
+            STREAM_DIR
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
+
+    processos.append(servidor)
+
+    time.sleep(2)
+
+    if servidor.poll() is not None:
+        raise RuntimeError(
+            "Servidor HTTP não iniciou."
+        )
+
+    log(
+        "Servidor HTTP funcionando na porta",
+        HTTP_PORT
+    )
+
+
+# ============================================================
+# TÚNEL LOCALHOST.RUN
+# ============================================================
+
+def iniciar_tunel():
+    global tunnel_process
+
+    log("")
+    log("[4] Iniciando túnel público...")
+    log("Aguardando endereço público...")
+
+    tunnel_process = subprocess.Popen(
+        [
+            "ssh",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "ServerAliveInterval=30",
+            "-o",
+            "ServerAliveCountMax=3",
+            "-o",
+            "ExitOnForwardFailure=yes",
+            "-R",
+            f"80:localhost:{HTTP_PORT}",
+            "nokey@localhost.run"
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1
+    )
+
+    processos.append(tunnel_process
