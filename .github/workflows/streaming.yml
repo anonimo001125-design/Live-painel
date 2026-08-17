@@ -13,7 +13,7 @@ jobs:
 
     steps:
 
-      - name: Baixar codigo
+      - name: Baixar código
         uses: actions/checkout@v4
 
 
@@ -28,96 +28,92 @@ jobs:
             pulseaudio-utils \
             xvfb \
             chromium \
-            python3-pip \
-            wget \
-            ca-certificates
+            openssh-client
 
 
-      - name: Instalar Cloudflare Tunnel
-        run: |
-
-          sudo wget -q \
-            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
-            -O /usr/local/bin/cloudflared
-
-          sudo chmod +x /usr/local/bin/cloudflared
-
-          cloudflared --version
-
-
-      - name: Instalar Playwright
+      - name: Instalar Python
         run: |
 
           python3 -m pip install --upgrade pip
 
-          pip install playwright
+          python3 -m pip install pyppeteer
 
 
       - name: Verificar sistema
         run: |
 
-          echo "=========================================="
+          echo "========================================"
           echo "PYTHON"
-          echo "=========================================="
-
           python3 --version
 
-          echo "=========================================="
-          echo "FFMPEG"
-          echo "=========================================="
-
-          ffmpeg -version
-
-          echo "=========================================="
+          echo "========================================"
           echo "CHROMIUM"
-          echo "=========================================="
-
           chromium --version
 
-          echo "=========================================="
-          echo "PLAYWRIGHT"
-          echo "=========================================="
+          echo "========================================"
+          echo "FFMPEG"
+          ffmpeg -version | head -n 1
 
-          python3 -c "import playwright; print('Playwright OK')"
+          echo "========================================"
+          echo "PULSEAUDIO"
+          pulseaudio --version
 
-          echo "=========================================="
-          echo "CLOUDFLARE"
-          echo "=========================================="
-
-          cloudflared --version
+          echo "========================================"
+          echo "SSH"
+          ssh -V
 
 
       - name: Preparar ambiente
         run: |
+
+          rm -rf stream
 
           mkdir -p stream
 
           echo "Ambiente preparado."
 
 
-      - name: Verificar sintaxe
-        run: |
-
-          python3 -m py_compile app.py
-
-          echo "Sintaxe Python OK."
-
-
-      - name: Iniciar transmissao
+      - name: Iniciar transmissão
         env:
 
           DISPLAY: ":99"
 
-          PYTHONUNBUFFERED: "1"
+          PULSE_SINK: "webtv"
+
+          PYPPETEER_NO_CHROMIUM_DOWNLOAD: "1"
 
         run: |
+
+          echo "========================================"
+          echo "INICIANDO WEBTV"
+          echo "========================================"
 
           python3 app.py
 
 
-      - name: Salvar transmissao
+      - name: Salvar diagnósticos
         if: always()
+        run: |
 
+          echo "========================================"
+          echo "PROCESSOS"
+          echo "========================================"
+
+          ps aux | grep -E \
+            'ffmpeg|chromium|Xvfb|pulseaudio|ssh' \
+            | grep -v grep \
+            || true
+
+
+          echo "========================================"
+          echo "STREAM"
+          echo "========================================"
+
+          ls -lah stream/ || true
+
+
+      - name: Salvar arquivos da transmissão
+        if: always()
         uses: actions/upload-artifact@v4
 
         with:
@@ -127,27 +123,6 @@ jobs:
           path: stream/
 
           if-no-files-found: ignore
-
-      - name: Iniciar transmissão
-        env:
-
-          DISPLAY: ":99"
-
-          PULSE_SINK: "webtv"
-
-        run: |
-
-          . .venv/bin/activate
-
-          python app.py
-
-
-      - name: Salvar transmissão
-        if: always()
-        uses: actions/upload-artifact@v4
-
-        with:
-
           name: webtv-stream
 
           path: stream/
