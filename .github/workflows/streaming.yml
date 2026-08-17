@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
 
 jobs:
+
   run-stream:
 
     runs-on: ubuntu-24.04
@@ -18,6 +19,7 @@ jobs:
 
       - name: Instalar sistema
         run: |
+
           sudo apt-get update
 
           sudo apt-get install -y \
@@ -26,71 +28,82 @@ jobs:
             pulseaudio-utils \
             xvfb \
             chromium \
-            openssh-client
+            curl
 
-
-      - name: Instalar Python e Playwright
-        run: |
-          python3 -m pip install --upgrade pip
-
-          python3 -m pip install \
-            playwright
-
-          python3 -m playwright install chromium
-
-
-      - name: Verificar sistema
-        run: |
-          echo "======================================"
-          echo "PYTHON"
-          echo "======================================"
-
-          python3 --version
-
-          echo "======================================"
-          echo "FFMPEG"
-          echo "======================================"
-
-          ffmpeg -version | head -n 3
-
-          echo "======================================"
-          echo "CHROMIUM"
-          echo "======================================"
-
+          echo "Chromium:"
           chromium --version
 
-          echo "======================================"
-          echo "PLAYWRIGHT"
-          echo "======================================"
+          echo "FFmpeg:"
+          ffmpeg -version | head -n 1
 
-          python3 -c "import playwright; print('Playwright OK')"
+
+      - name: Instalar Cloudflare Tunnel
+        run: |
+
+          curl -L --fail --retry 3 \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+            -o /tmp/cloudflared
+
+          sudo install -m 0755 \
+            /tmp/cloudflared \
+            /usr/local/bin/cloudflared
+
+          cloudflared --version
+
+
+      - name: Instalar Playwright
+        run: |
+
+          python3 -m venv .venv
+
+          . .venv/bin/activate
+
+          python -m pip install --upgrade pip
+
+          python -m pip install playwright
 
 
       - name: Preparar ambiente
         run: |
+
           mkdir -p stream
 
           echo "Ambiente preparado."
 
 
+      - name: Verificar sintaxe
+        run: |
+
+          . .venv/bin/activate
+
+          python -m py_compile app.py
+
+          echo "Sintaxe OK."
+
+
       - name: Iniciar transmissão
         env:
+
           DISPLAY: ":99"
+
           PULSE_SINK: "webtv"
-          PYTHONUNBUFFERED: "1"
 
         run: |
-          echo "======================================"
-          echo "INICIANDO WEBTV"
-          echo "======================================"
 
-          python3 app.py
+          . .venv/bin/activate
+
+          python app.py
 
 
-      - name: Salvar diagnósticos
+      - name: Salvar transmissão
         if: always()
+
         uses: actions/upload-artifact@v4
+
         with:
-          name: webtv-debug
+
+          name: webtv-stream-debug
+
           path: stream/
+
           if-no-files-found: ignore
