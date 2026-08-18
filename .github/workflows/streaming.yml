@@ -13,11 +13,19 @@ jobs:
 
     steps:
 
+      # ======================================================
+      # BAIXAR CÓDIGO
+      # ======================================================
+
       - name: Baixar código
         uses: actions/checkout@v4
 
 
-      - name: Instalar dependências
+      # ======================================================
+      # INSTALAR SISTEMA
+      # ======================================================
+
+      - name: Instalar sistema
         run: |
 
           sudo apt-get update
@@ -28,59 +36,63 @@ jobs:
             pulseaudio-utils \
             xvfb \
             xdotool \
-            openssh-client \
-            python3-pip \
-            python3-venv
+            chromium \
+            openssh-client
 
 
-      - name: Preparar Python
+      # ======================================================
+      # PYPPETEER
+      # ======================================================
+
+      - name: Instalar Pyppeteer
         run: |
 
-          python3 -m venv .venv
+          python3 -m pip install --upgrade pip
 
-          . .venv/bin/activate
-
-          python -m pip install --upgrade pip
-
-          pip install playwright
+          pip install pyppeteer
 
 
-      - name: Instalar Chromium
+      # ======================================================
+      # VERIFICAR
+      # ======================================================
+
+      - name: Verificar sistema
         run: |
 
-          . .venv/bin/activate
-
-          playwright install chromium
-
-          playwright install-deps chromium
-
-
-      - name: Verificar ambiente
-        run: |
-
-          echo "=============================="
-          echo "PYTHON"
-          echo "=============================="
-
-          python3 --version
-
-          echo "=============================="
+          echo "=========================================="
           echo "FFMPEG"
-          echo "=============================="
+          echo "=========================================="
 
           ffmpeg -version | head -n 3
 
-          echo "=============================="
-          echo "PLAYWRIGHT"
-          echo "=============================="
+          echo "=========================================="
+          echo "CHROMIUM"
+          echo "=========================================="
 
-          . .venv/bin/activate
+          chromium --version
 
-          playwright --version
+          echo "=========================================="
+          echo "PULSEAUDIO"
+          echo "=========================================="
 
+          pulseaudio --version
+
+          echo "=========================================="
+          echo "PYTHON"
+          echo "=========================================="
+
+          python3 --version
+
+
+      # ======================================================
+      # TRANSMISSÃO
+      # ======================================================
 
       - name: Iniciar transmissão
+
         env:
+
+          PYPPETEER_NO_CHROMIUM_DOWNLOAD: "1"
 
           DISPLAY: ":99"
 
@@ -90,19 +102,22 @@ jobs:
 
         run: |
 
-          . .venv/bin/activate
-
           python3 app.py
 
 
+      # ======================================================
+      # DIAGNÓSTICOS
+      # ======================================================
+
       - name: Salvar diagnósticos
+
         if: always()
 
         uses: actions/upload-artifact@v4
 
         with:
 
-          name: stream-debug
+          name: webtv-debug
 
           path: stream/
 
