@@ -99,12 +99,9 @@ def preparar_stream():
         caminho = os.path.join(STREAM_DIR, nome)
 
         try:
-
             if os.path.isfile(caminho):
                 os.remove(caminho)
-
         except Exception as erro:
-
             log("[AVISO]", erro)
 
 
@@ -139,7 +136,6 @@ def iniciar_xvfb():
     time.sleep(3)
 
     if xvfb.poll() is not None:
-
         raise RuntimeError(
             "Xvfb não conseguiu iniciar."
         )
@@ -288,7 +284,6 @@ def iniciar_servidor():
     time.sleep(2)
 
     if servidor.poll() is not None:
-
         raise RuntimeError(
             "Servidor HTTP encerrou."
         )
@@ -728,19 +723,20 @@ def tentar_reproduzir(page):
 
 
 # ============================================================
-# TELA CHEIA
+# TELA CHEIA / DUPLO CLIQUE
 # ============================================================
 
 def ativar_tela_cheia(page):
 
     log("")
-    log("[PLAYER] Preparando tela cheia...")
+    log("=" * 60)
+    log("[PLAYER] PROCURANDO PLAYER")
+    log("=" * 60)
 
-    time.sleep(3)
+    time.sleep(5)
 
     # --------------------------------------------------------
-    # PRIMEIRA TENTATIVA:
-    # CLICAR NO PRÓPRIO VÍDEO
+    # ENCONTRAR VIDEO
     # --------------------------------------------------------
 
     try:
@@ -753,188 +749,114 @@ def ativar_tela_cheia(page):
         )
 
         log(
-            "[PLAYER] Vídeo encontrado."
+            "[PLAYER] <video> encontrado."
         )
+
+    except Exception as erro:
+
+        log(
+            "[PLAYER] <video> não encontrado:",
+            erro
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # OBTER POSIÇÃO
+    # --------------------------------------------------------
+
+    try:
 
         box = video.bounding_box()
 
-        if box:
+        if not box:
 
-            log(
-                "[PLAYER] Área do vídeo:",
-                f"{box['width']:.0f}x{box['height']:.0f}"
+            raise RuntimeError(
+                "bounding_box do vídeo retornou vazio."
             )
 
-            video.click(
-                position={
-                    "x": box["width"] / 2,
-                    "y": box["height"] / 2
-                },
-                timeout=10000
-            )
+        x = box["x"] + box["width"] / 2
+        y = box["y"] + box["height"] / 2
 
-            log(
-                "[PLAYER] Clique no vídeo realizado."
-            )
+        log(
+            "[PLAYER] Área:"
+        )
 
-        else:
+        log(
+            f"X={box['x']:.0f} "
+            f"Y={box['y']:.0f} "
+            f"W={box['width']:.0f} "
+            f"H={box['height']:.0f}"
+        )
 
-            log(
-                "[PLAYER] Não foi possível obter "
-                "a área do vídeo."
-            )
+        log(
+            f"[PLAYER] Centro: {x:.0f}x{y:.0f}"
+        )
 
     except Exception as erro:
 
         log(
-            "[PLAYER] Clique no vídeo falhou:",
+            "[PLAYER] Erro obtendo posição:",
             erro
         )
 
-    time.sleep(3)
+        return
 
     # --------------------------------------------------------
-    # SEGUNDA TENTATIVA:
-    # JAVASCRIPT FULLSCREEN
+    # GARANTIR FOCO NA PÁGINA
     # --------------------------------------------------------
 
     try:
 
-        resultado = page.evaluate(
-            """
-            async () => {
+        page.bring_to_front()
 
-                const video =
-                    document.querySelector("video");
-
-                if (!video) {
-                    return {
-                        sucesso: false,
-                        motivo: "video não encontrado"
-                    };
-                }
-
-                try {
-
-                    if (
-                        document.fullscreenElement !== video
-                    ) {
-
-                        if (
-                            video.requestFullscreen
-                        ) {
-
-                            await video.requestFullscreen();
-
-                            return {
-                                sucesso: true,
-                                metodo: "video.requestFullscreen"
-                            };
-                        }
-
-                        if (
-                            video.webkitRequestFullscreen
-                        ) {
-
-                            video.webkitRequestFullscreen();
-
-                            return {
-                                sucesso: true,
-                                metodo: "webkitRequestFullscreen"
-                            };
-                        }
-                    }
-
-                    return {
-                        sucesso:
-                            !!document.fullscreenElement,
-
-                        metodo:
-                            "fullscreen existente"
-                    };
-
-                } catch (erro) {
-
-                    return {
-                        sucesso: false,
-                        erro: String(erro)
-                    };
-                }
-            }
-            """
-        )
-
-        log(
-            "[PLAYER] JavaScript fullscreen:",
-            resultado
-        )
-
-    except Exception as erro:
-
-        log(
-            "[PLAYER] Erro no fullscreen:",
-            erro
-        )
-
-    time.sleep(2)
+    except Exception:
+        pass
 
     # --------------------------------------------------------
-    # TERCEIRA TENTATIVA:
-    # F11 NO X11
+    # SIMULAR O GESTO REAL:
+    # DOIS CLIQUES RÁPIDOS
     # --------------------------------------------------------
 
     try:
 
-        estado = page.evaluate(
-            """
-            () => ({
-                fullscreen:
-                    !!document.fullscreenElement,
+        log("")
+        log(
+            "[PLAYER] Executando DUPLO CLIQUE..."
+        )
 
-                largura:
-                    window.innerWidth,
+        page.mouse.move(
+            x,
+            y
+        )
 
-                altura:
-                    window.innerHeight
-            })
-            """
+        time.sleep(0.5)
+
+        page.mouse.dblclick(
+            x,
+            y,
+            delay=100
         )
 
         log(
-            "[PLAYER] Estado antes do F11:",
-            estado
+            "[PLAYER] DUPLO CLIQUE realizado."
         )
-
-        if not estado["fullscreen"]:
-
-            log(
-                "[PLAYER] Fullscreen JS não ativado."
-            )
-
-            log(
-                "[PLAYER] Tentando F11 via X11..."
-            )
-
-            subprocess.run(
-                [
-                    "xdotool",
-                    "key",
-                    "F11"
-                ],
-                check=False
-            )
-
-            time.sleep(3)
 
     except Exception as erro:
 
         log(
-            "[PLAYER] Erro no F11:",
+            "[PLAYER] Erro no duplo clique:",
             erro
         )
 
     # --------------------------------------------------------
-    # DIAGNÓSTICO FINAL
+    # AGUARDAR PLAYER
+    # --------------------------------------------------------
+
+    time.sleep(4)
+
+    # --------------------------------------------------------
+    # VERIFICAR RESULTADO
     # --------------------------------------------------------
 
     try:
@@ -946,16 +868,160 @@ def ativar_tela_cheia(page):
                 const video =
                     document.querySelector("video");
 
+                const fullscreen =
+                    document.fullscreenElement;
+
+                return {
+
+                    fullscreen:
+                        !!fullscreen,
+
+                    fullscreenTag:
+                        fullscreen
+                            ? fullscreen.tagName
+                            : null,
+
+                    innerWidth:
+                        window.innerWidth,
+
+                    innerHeight:
+                        window.innerHeight,
+
+                    screenWidth:
+                        window.screen.width,
+
+                    screenHeight:
+                        window.screen.height,
+
+                    video:
+                        video
+                            ? {
+
+                                paused:
+                                    video.paused,
+
+                                currentTime:
+                                    video.currentTime,
+
+                                width:
+                                    video.videoWidth,
+
+                                height:
+                                    video.videoHeight
+                            }
+                            : null
+                };
+            }
+            """
+        )
+
+        log("")
+        log(
+            "[PLAYER] RESULTADO DO DUPLO CLIQUE:"
+        )
+
+        log(
+            estado
+        )
+
+        # ----------------------------------------------------
+        # SE NÃO ENTROU:
+        # TENTAR F11
+        # ----------------------------------------------------
+
+        if not estado["fullscreen"]:
+
+            log("")
+            log(
+                "[PLAYER] O player não ativou "
+                "fullscreen com dblclick."
+            )
+
+            log(
+                "[PLAYER] Tentando F11..."
+            )
+
+            resultado_f11 = subprocess.run(
+                [
+                    "xdotool",
+                    "key",
+                    "F11"
+                ],
+                capture_output=True,
+                text=True
+            )
+
+            if resultado_f11.returncode != 0:
+
+                log(
+                    "[PLAYER] xdotool:",
+                    resultado_f11.stderr
+                )
+
+            time.sleep(3)
+
+        else:
+
+            log("")
+            log(
+                "=" * 60
+            )
+
+            log(
+                "[PLAYER] FULLSCREEN ATIVADO!"
+            )
+
+            log(
+                "=" * 60
+            )
+
+    except Exception as erro:
+
+        log(
+            "[PLAYER] Erro verificando fullscreen:",
+            erro
+        )
+
+    # --------------------------------------------------------
+    # DIAGNÓSTICO FINAL
+    # --------------------------------------------------------
+
+    try:
+
+        final = page.evaluate(
+            """
+            () => {
+
+                const video =
+                    document.querySelector("video");
+
                 return {
 
                     fullscreen:
                         !!document.fullscreenElement,
 
-                    largura:
-                        window.innerWidth,
+                    fullscreenElement:
+                        document.fullscreenElement
+                            ? document.fullscreenElement.tagName
+                            : null,
 
-                    altura:
-                        window.innerHeight,
+                    janela:
+                        {
+                            width:
+                                window.innerWidth,
+
+                            height:
+                                window.innerHeight
+                        },
+
+                    tela:
+                        {
+                            width:
+                                window.screen.width,
+
+                            height:
+                                window.screen.height
+                        },
 
                     video:
                         video
@@ -978,16 +1044,19 @@ def ativar_tela_cheia(page):
             """
         )
 
-        log(
-            "[PLAYER] Estado final:",
-            estado
-        )
+        log("")
+        log("=" * 60)
+        log("[PLAYER] DIAGNÓSTICO FINAL")
+        log("=" * 60)
+
+        log(final)
+
+        log("=" * 60)
 
     except Exception as erro:
 
         log(
-            "[PLAYER] Não foi possível "
-            "verificar fullscreen:",
+            "[PLAYER] Erro no diagnóstico:",
             erro
         )
 
@@ -1026,9 +1095,9 @@ def iniciar_navegador():
 
                 "--disable-notifications",
 
-                # ==================================================
-                # TELA CHEIA DO CHROMIUM
-                # ==================================================
+                # ------------------------------------------------
+                # TELA CHEIA DO NAVEGADOR
+                # ------------------------------------------------
 
                 "--kiosk",
 
@@ -1040,9 +1109,9 @@ def iniciar_navegador():
 
                 "--force-device-scale-factor=1",
 
-                # ==================================================
+                # ------------------------------------------------
                 # X11
-                # ==================================================
+                # ------------------------------------------------
 
                 "--ozone-platform=x11",
 
@@ -1055,8 +1124,7 @@ def iniciar_navegador():
         )
 
         # IMPORTANTE:
-        # viewport=None faz o Playwright usar a área real
-        # da janela em vez de criar um viewport separado.
+        # Usa a área real da janela.
 
         page = browser.new_page(
             viewport=None
@@ -1142,7 +1210,7 @@ def iniciar_navegador():
         )
 
         # ----------------------------------------------------
-        # TELA CHEIA
+        # DUPLO CLIQUE
         # ----------------------------------------------------
 
         ativar_tela_cheia(
@@ -1150,11 +1218,8 @@ def iniciar_navegador():
         )
 
         # ----------------------------------------------------
-        # INICIAR FFmpeg DEPOIS DO PLAYER
+        # MANTER NAVEGADOR ABERTO
         # ----------------------------------------------------
-
-        # O FFmpeg já deve ter sido iniciado pelo main()
-        # antes do navegador. Portanto não iniciamos aqui.
 
         log("")
         log("=" * 60)
@@ -1162,23 +1227,15 @@ def iniciar_navegador():
         log("=" * 60)
         log("")
 
-        # Mantém o navegador aberto durante a transmissão.
-
         while True:
 
-            try:
+            if page.is_closed():
 
-                if page.is_closed():
+                raise RuntimeError(
+                    "Página do Chromium foi fechada."
+                )
 
-                    raise RuntimeError(
-                        "Página do Chromium foi fechada."
-                    )
-
-                time.sleep(10)
-
-            except KeyboardInterrupt:
-
-                break
+            time.sleep(10)
 
 
 # ============================================================
@@ -1189,7 +1246,7 @@ def main():
 
     log("")
     log("=" * 60)
-    log("          WEBTV STREAM")
+    log("             WEBTV STREAM")
     log("=" * 60)
     log("")
 
