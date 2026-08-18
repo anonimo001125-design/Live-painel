@@ -13,11 +13,19 @@ jobs:
 
     steps:
 
+      # ======================================================
+      # CÓDIGO
+      # ======================================================
+
       - name: Baixar código
         uses: actions/checkout@v4
 
 
-      - name: Instalar dependências
+      # ======================================================
+      # DEPENDÊNCIAS
+      # ======================================================
+
+      - name: Instalar sistema
         run: |
 
           sudo apt-get update
@@ -30,31 +38,24 @@ jobs:
             xdotool \
             chromium \
             openssh-client \
-            python3-pip \
-            python3-venv
+            python3-pip
 
 
-      - name: Preparar Python
+      # ======================================================
+      # PYTHON
+      # ======================================================
+
+      - name: Instalar Pyppeteer
         run: |
 
-          python3 -m venv .venv
+          python3 -m pip install --upgrade pip
 
-          . .venv/bin/activate
-
-          python -m pip install --upgrade pip
-
-          pip install playwright
+          pip install --no-cache-dir pyppeteer
 
 
-      - name: Instalar navegador
-        run: |
-
-          . .venv/bin/activate
-
-          playwright install chromium
-
-          playwright install-deps chromium
-
+      # ======================================================
+      # VERIFICAÇÃO
+      # ======================================================
 
       - name: Verificar ambiente
         run: |
@@ -69,15 +70,19 @@ jobs:
           echo "CHROMIUM"
           echo "=========================================="
 
-          chromium --version || true
+          chromium --version
 
           echo "=========================================="
-          echo "PLAYWRIGHT"
+          echo "XDOTool"
           echo "=========================================="
 
-          . .venv/bin/activate
+          xdotool --version
 
-          playwright --version
+          echo "=========================================="
+          echo "PULSEAUDIO"
+          echo "=========================================="
+
+          pulseaudio --version
 
           echo "=========================================="
           echo "PYTHON"
@@ -85,6 +90,10 @@ jobs:
 
           python3 --version
 
+
+      # ======================================================
+      # TRANSMISSÃO
+      # ======================================================
 
       - name: Iniciar transmissão
 
@@ -96,12 +105,16 @@ jobs:
 
           PYTHONUNBUFFERED: "1"
 
-        run: |
+          PYPPETEER_NO_CHROMIUM_DOWNLOAD: "1"
 
-          . .venv/bin/activate
+        run: |
 
           python3 app.py
 
+
+      # ======================================================
+      # DIAGNÓSTICOS
+      # ======================================================
 
       - name: Salvar diagnósticos
 
