@@ -4,6 +4,7 @@ import time
 import signal
 import subprocess
 import threading
+import re
 
 from playwright.sync_api import sync_playwright
 
@@ -29,7 +30,9 @@ URL_ALVO = (
 )
 
 processos = []
+
 ffmpeg_process = None
+tunnel_process = None
 
 ENCERRANDO = False
 
@@ -49,7 +52,6 @@ def log(*args):
 def encerrar(*args):
 
     global ENCERRANDO
-    global ffmpeg_process
 
     if ENCERRANDO:
         return
@@ -61,40 +63,58 @@ def encerrar(*args):
     log("ENCERRANDO TRANSMISSÃO")
     log("=" * 70)
 
-    try:
-        if ffmpeg_process and ffmpeg_process.poll() is None:
-            ffmpeg_process.terminate()
-    except Exception:
-        pass
+    processos_para_encerrar = list(processos)
 
-    for processo in processos:
+    if ffmpeg_process:
+        processos_para_encerrar.append(
+            ffmpeg_process
+        )
+
+    if tunnel_process:
+        processos_para_encerrar.append(
+            tunnel_process
+        )
+
+    for processo in processos_para_encerrar:
 
         try:
-            if processo.poll() is None:
+
+            if processo and processo.poll() is None:
                 processo.terminate()
+
         except Exception:
             pass
 
     time.sleep(2)
 
-    for processo in processos:
+    for processo in processos_para_encerrar:
 
         try:
-            if processo.poll() is None:
+
+            if processo and processo.poll() is None:
                 processo.kill()
+
         except Exception:
             pass
 
     log("Transmissão encerrada.")
+
     sys.exit(0)
 
 
-signal.signal(signal.SIGTERM, encerrar)
-signal.signal(signal.SIGINT, encerrar)
+signal.signal(
+    signal.SIGTERM,
+    encerrar
+)
+
+signal.signal(
+    signal.SIGINT,
+    encerrar
+)
 
 
 # ============================================================
-# STREAM
+# PREPARAR STREAM
 # ============================================================
 
 def preparar_stream():
@@ -106,7 +126,9 @@ def preparar_stream():
 
     log("[1] Limpando stream antigo...")
 
-    for nome in os.listdir(STREAM_DIR):
+    for nome in os.listdir(
+        STREAM_DIR
+    ):
 
         caminho = os.path.join(
             STREAM_DIR,
@@ -120,7 +142,10 @@ def preparar_stream():
 
         except Exception as erro:
 
-            log("[AVISO]", erro)
+            log(
+                "[AVISO]",
+                erro
+            )
 
 
 # ============================================================
@@ -132,7 +157,9 @@ def iniciar_xvfb():
     log("")
     log("[2] Iniciando Xvfb...")
 
-    os.environ["DISPLAY"] = DISPLAY
+    os.environ[
+        "DISPLAY"
+    ] = DISPLAY
 
     xvfb = subprocess.Popen(
         [
@@ -149,7 +176,9 @@ def iniciar_xvfb():
         stderr=subprocess.STDOUT
     )
 
-    processos.append(xvfb)
+    processos.append(
+        xvfb
+    )
 
     time.sleep(3)
 
@@ -202,14 +231,19 @@ def iniciar_audio():
     time.sleep(3)
 
     teste = subprocess.run(
-        ["pactl", "info"],
+        [
+            "pactl",
+            "info"
+        ],
         capture_output=True,
         text=True
     )
 
     if teste.returncode != 0:
 
-        log(teste.stderr)
+        log(
+            teste.stderr
+        )
 
         raise RuntimeError(
             "PulseAudio não iniciou."
@@ -246,8 +280,13 @@ def iniciar_audio():
 
         if resultado.returncode != 0:
 
-            log(resultado.stdout)
-            log(resultado.stderr)
+            log(
+                resultado.stdout
+            )
+
+            log(
+                resultado.stderr
+            )
 
             raise RuntimeError(
                 "Não foi possível criar webtv."
@@ -289,7 +328,9 @@ def iniciar_audio():
             "webtv.monitor não foi encontrado."
         )
 
-    log("Áudio pronto.")
+    log(
+        "Áudio pronto."
+    )
 
 
 # ============================================================
@@ -314,7 +355,9 @@ def iniciar_servidor():
         stderr=subprocess.STDOUT
     )
 
-    processos.append(servidor)
+    processos.append(
+        servidor
+    )
 
     time.sleep(2)
 
@@ -335,41 +378,60 @@ def iniciar_servidor():
 
 def iniciar_tunel():
 
+    global tunnel_process
+
     log("")
     log("[5] Iniciando túnel público...")
     log("")
 
-    tunnel = subprocess.Popen(
-        [
-            "ssh",
-            "-o",
-            "StrictHostKeyChecking=no",
-            "-o",
-            "ServerAliveInterval=30",
-            "-o",
-            "ServerAliveCountMax=3",
-            "-o",
-            "ExitOnForwardFailure=yes",
-            "-R",
-            f"80:localhost:{HTTP_PORT}",
-            "nokey@localhost.run"
-        ],
+    comando = [
+        "ssh",
+
+        "-o",
+        "StrictHostKeyChecking=no",
+
+        "-o",
+        "ServerAliveInterval=15",
+
+        "-o",
+        "ServerAliveCountMax=3",
+
+        "-o",
+        "TCPKeepAlive=yes",
+
+        "-o",
+        "ExitOnForwardFailure=yes",
+
+        "-o",
+        "ConnectTimeout=15",
+
+        "-R",
+        f"80:localhost:{HTTP_PORT}",
+
+        "nokey@localhost.run"
+    ]
+
+    tunnel_process = subprocess.Popen(
+        comando,
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1
     )
 
-    processos.append(tunnel)
+    processos.append(
+        tunnel_process
+    )
 
     def ler_tunel():
 
-        encontrado = False
+        encontrou = False
 
         try:
 
             for linha in iter(
-                tunnel.stdout.readline,
+                tunnel_process.stdout.readline,
                 ""
             ):
 
@@ -378,42 +440,46 @@ def iniciar_tunel():
 
                 linha = linha.strip()
 
-                log("[TUNEL]", linha)
+                log(
+                    "[TUNEL]",
+                    linha
+                )
 
-                if (
-                    "https://" in linha
-                    and not encontrado
-                ):
+                # ------------------------------------------------
+                # PEGAR SOMENTE O DOMÍNIO REAL DO TÚNEL
+                # ------------------------------------------------
 
-                    for parte in linha.split():
+                encontrados = re.findall(
+                    r"https://([a-zA-Z0-9-]+\.lhr\.life)",
+                    linha
+                )
 
-                        if parte.startswith(
-                            "https://"
-                        ):
+                if encontrados and not encontrou:
 
-                            url = parte.strip(
-                                ".,;()[]{}<>\"'"
-                            )
+                    dominio = encontrados[0]
 
-                            url = url.rstrip("/")
+                    encontrou = True
 
-                            encontrado = True
+                    url = (
+                        "https://"
+                        + dominio
+                    )
 
-                            log("")
-                            log("=" * 70)
-                            log("LINK DA TRANSMISSÃO")
-                            log("=" * 70)
-                            log("")
-                            log("LINK PRINCIPAL:")
-                            log(url)
-                            log("")
-                            log("LINK HLS:")
-                            log(url + "/live.m3u8")
-                            log("")
-                            log("=" * 70)
-                            log("")
-
-                            break
+                    log("")
+                    log("=" * 70)
+                    log("        LINK DA TRANSMISSÃO")
+                    log("=" * 70)
+                    log("")
+                    log("LINK PRINCIPAL:")
+                    log(url)
+                    log("")
+                    log("LINK HLS:")
+                    log(
+                        url + "/live.m3u8"
+                    )
+                    log("")
+                    log("=" * 70)
+                    log("")
 
         except Exception as erro:
 
@@ -427,6 +493,8 @@ def iniciar_tunel():
         daemon=True
     ).start()
 
+    time.sleep(5)
+
 
 # ============================================================
 # REPRODUÇÃO
@@ -435,7 +503,9 @@ def iniciar_tunel():
 def tentar_reproduzir(page):
 
     log("")
-    log("[PLAYER] Tentando reproduzir...")
+    log(
+        "[PLAYER] Tentando reproduzir..."
+    )
 
     try:
 
@@ -476,7 +546,9 @@ def tentar_reproduzir(page):
 
                         } catch (erro) {
 
-                            estado = String(erro);
+                            estado = String(
+                                erro
+                            );
                         }
 
                         resultado.push({
@@ -506,7 +578,9 @@ def tentar_reproduzir(page):
                     } catch (erro) {
 
                         resultado.push({
-                            erro: String(erro)
+                            erro: String(
+                                erro
+                            )
                         });
                     }
                 }
@@ -537,10 +611,14 @@ def ativar_tela_cheia(page):
 
     log("")
     log("=" * 70)
-    log("[PLAYER] TENTANDO FULLSCREEN")
+    log("[PLAYER] ATIVANDO FULLSCREEN")
     log("=" * 70)
 
     try:
+
+        # ----------------------------------------------------
+        # PEGAR O VÍDEO
+        # ----------------------------------------------------
 
         video = page.locator(
             "video"
@@ -555,9 +633,9 @@ def ativar_tela_cheia(page):
             "[PLAYER] Vídeo encontrado."
         )
 
-        video.scroll_into_view_if_needed()
-
-        time.sleep(1)
+        # ----------------------------------------------------
+        # PEGAR ÁREA DO VÍDEO
+        # ----------------------------------------------------
 
         box = video.bounding_box()
 
@@ -567,21 +645,46 @@ def ativar_tela_cheia(page):
                 "Não foi possível obter posição do vídeo."
             )
 
-        x = box["width"] / 2
-        y = box["height"] / 2
-
         log(
-            "[PLAYER] Área do vídeo:",
+            "[PLAYER] Área:",
             box
         )
 
+        centro_x = (
+            box["x"]
+            +
+            box["width"] / 2
+        )
+
+        centro_y = (
+            box["y"]
+            +
+            box["height"] / 2
+        )
+
         # ----------------------------------------------------
-        # MOVIMENTO DO MOUSE
+        # IMPORTANTE:
+        #
+        # NÃO usamos locator.click().
+        #
+        # O próprio log mostrou que existe um DIV
+        # transparente por cima do vídeo:
+        #
+        # z-[5000]
+        #
+        # Então precisamos clicar na TELA,
+        # não no elemento video.
         # ----------------------------------------------------
 
+        log(
+            "[PLAYER] Movendo mouse para:",
+            centro_x,
+            centro_y
+        )
+
         page.mouse.move(
-            box["x"] + x,
-            box["y"] + y
+            centro_x,
+            centro_y
         )
 
         time.sleep(1)
@@ -591,36 +694,31 @@ def ativar_tela_cheia(page):
         # ----------------------------------------------------
 
         log(
-            "[PLAYER] Primeiro clique..."
+            "[PLAYER] Clique 1..."
         )
 
-        video.click(
-            position={
-                "x": x,
-                "y": y
-            }
+        page.mouse.click(
+            centro_x,
+            centro_y
         )
 
-        time.sleep(0.5)
+        time.sleep(0.4)
 
         # ----------------------------------------------------
-        # DUPLO CLIQUE REAL
+        # SEGUNDO CLIQUE
         # ----------------------------------------------------
 
         log(
-            "[PLAYER] Duplo clique real..."
+            "[PLAYER] Clique 2..."
         )
 
-        video.dblclick(
-            position={
-                "x": x,
-                "y": y
-            },
-            delay=120
+        page.mouse.click(
+            centro_x,
+            centro_y
         )
 
         log(
-            "[PLAYER] Duplo clique enviado."
+            "[PLAYER] Dois cliques enviados."
         )
 
         time.sleep(3)
@@ -636,7 +734,7 @@ def ativar_tela_cheia(page):
                 fullscreen:
                     !!document.fullscreenElement,
 
-                element:
+                fullscreenTag:
                     document.fullscreenElement
                         ? document.fullscreenElement.tagName
                         : null,
@@ -664,11 +762,15 @@ def ativar_tela_cheia(page):
             return True
 
         # ----------------------------------------------------
-        # PROCURAR BOTÃO DE FULLSCREEN
+        # TENTAR LOCALIZAR BOTÃO
         # ----------------------------------------------------
 
         log(
-            "[PLAYER] Procurando botão fullscreen..."
+            "[PLAYER] Fullscreen não detectado."
+        )
+
+        log(
+            "[PLAYER] Procurando controles..."
         )
 
         seletores = [
@@ -694,43 +796,84 @@ def ativar_tela_cheia(page):
                     seletor
                 ).first
 
-                if await_count(botao) > 0:
+                if botao.count() == 0:
+                    continue
 
-                    if botao.is_visible():
+                if not botao.is_visible():
+                    continue
 
-                        log(
-                            "[PLAYER] Botão encontrado:",
-                            seletor
-                        )
+                log(
+                    "[PLAYER] Controle encontrado:",
+                    seletor
+                )
 
-                        botao.click(
-                            force=True
-                        )
+                caixa = botao.bounding_box()
 
-                        time.sleep(3)
+                if not caixa:
+                    continue
 
-                        estado = page.evaluate(
-                            """
-                            () => ({
-                                fullscreen:
-                                    !!document.fullscreenElement
-                            })
-                            """
-                        )
+                bx = (
+                    caixa["x"]
+                    +
+                    caixa["width"] / 2
+                )
 
-                        if estado["fullscreen"]:
+                by = (
+                    caixa["y"]
+                    +
+                    caixa["height"] / 2
+                )
 
-                            log(
-                                "[PLAYER] ✓ FULLSCREEN PELO BOTÃO"
-                            )
+                log(
+                    "[PLAYER] Clicando controle:",
+                    bx,
+                    by
+                )
 
-                            return True
+                page.mouse.click(
+                    bx,
+                    by
+                )
 
-            except Exception:
-                continue
+                time.sleep(3)
+
+                estado = page.evaluate(
+                    """
+                    () => ({
+                        fullscreen:
+                            !!document.fullscreenElement,
+
+                        width:
+                            window.innerWidth,
+
+                        height:
+                            window.innerHeight
+                    })
+                    """
+                )
+
+                log(
+                    "[PLAYER] Estado:",
+                    estado
+                )
+
+                if estado["fullscreen"]:
+
+                    log(
+                        "[PLAYER] ✓ FULLSCREEN PELO CONTROLE"
+                    )
+
+                    return True
+
+            except Exception as erro:
+
+                log(
+                    "[PLAYER] Controle falhou:",
+                    erro
+                )
 
         # ----------------------------------------------------
-        # F11
+        # ÚLTIMA TENTATIVA: F11
         # ----------------------------------------------------
 
         log(
@@ -759,14 +902,6 @@ def ativar_tela_cheia(page):
         return False
 
 
-def await_count(locator):
-
-    try:
-        return locator.count()
-    except Exception:
-        return 0
-
-
 # ============================================================
 # FFMPEG
 # ============================================================
@@ -784,24 +919,21 @@ def iniciar_ffmpeg():
     log("=" * 70)
     log("INICIANDO FFMPEG")
     log("=" * 70)
-    log("")
 
-    ffmpeg_cmd = [
+    comando = [
 
         "ffmpeg",
+
         "-y",
 
         "-hide_banner",
 
-        "-loglevel",
-        "warning",
-
         # ----------------------------------------------------
-        # X11
+        # CAPTURA
         # ----------------------------------------------------
 
         "-thread_queue_size",
-        "2048",
+        "4096",
 
         "-f",
         "x11grab",
@@ -823,7 +955,7 @@ def iniciar_ffmpeg():
         # ----------------------------------------------------
 
         "-thread_queue_size",
-        "2048",
+        "4096",
 
         "-f",
         "pulse",
@@ -902,15 +1034,15 @@ def iniciar_ffmpeg():
     ]
 
     log(
-        "Comando FFmpeg:"
+        "FFmpeg:"
     )
 
     log(
-        " ".join(ffmpeg_cmd)
+        " ".join(comando)
     )
 
     ffmpeg_process = subprocess.Popen(
-        ffmpeg_cmd
+        comando
     )
 
     time.sleep(5)
@@ -918,7 +1050,7 @@ def iniciar_ffmpeg():
     if ffmpeg_process.poll() is not None:
 
         raise RuntimeError(
-            "FFmpeg encerrou ao iniciar."
+            "FFmpeg encerrou."
         )
 
     log(
@@ -1018,7 +1150,7 @@ def iniciar_navegador():
         )
 
         # ----------------------------------------------------
-        # SITE
+        # ABRIR SITE
         # ----------------------------------------------------
 
         log(
@@ -1051,7 +1183,7 @@ def iniciar_navegador():
         time.sleep(10)
 
         # ----------------------------------------------------
-        # PLAYER
+        # REPRODUÇÃO
         # ----------------------------------------------------
 
         tentar_reproduzir(
@@ -1128,10 +1260,16 @@ def iniciar_navegador():
         log("")
 
         # ----------------------------------------------------
-        # MONITOR
+        # MONITORAMENTO
         # ----------------------------------------------------
 
+        ultimo_teste_tunel = 0
+
         while True:
+
+            # ------------------------------------------------
+            # FFMPEG
+            # ------------------------------------------------
 
             if (
                 ffmpeg_process
@@ -1140,7 +1278,6 @@ def iniciar_navegador():
                 is not None
             ):
 
-                log("")
                 log(
                     "[FFMPEG] Processo encerrou."
                 )
@@ -1152,6 +1289,36 @@ def iniciar_navegador():
                 time.sleep(2)
 
                 iniciar_ffmpeg()
+
+            # ------------------------------------------------
+            # TÚNEL
+            # ------------------------------------------------
+
+            if (
+                tunnel_process
+                and
+                tunnel_process.poll()
+                is not None
+            ):
+
+                log("")
+                log(
+                    "[TUNEL] Túnel caiu!"
+                )
+
+                log(
+                    "[TUNEL] A transmissão local continua."
+                )
+
+                log(
+                    "[TUNEL] O túnel precisa ser reconectado."
+                )
+
+                # Não conseguimos substituir facilmente
+                # o processo antigo sem duplicar threads.
+                #
+                # O GitHub Actions continuará registrando
+                # o problema no log.
 
             time.sleep(5)
 
