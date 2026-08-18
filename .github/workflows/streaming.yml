@@ -13,11 +13,35 @@ jobs:
 
     steps:
 
-      - name: Baixar codigo
+      # ======================================================
+      # BAIXAR CÓDIGO
+      # ======================================================
+
+      - name: Baixar código
         uses: actions/checkout@v4
 
 
-      - name: Instalar sistema
+      # ======================================================
+      # CORRIGIR DPKG, SE NECESSÁRIO
+      # ======================================================
+
+      - name: Corrigir pacotes
+        run: |
+
+          sudo dpkg --configure -a || true
+
+          sudo apt-get -f install -y || true
+
+
+      # ======================================================
+      # DEPENDÊNCIAS
+      #
+      # IMPORTANTE:
+      # NÃO INSTALAMOS "chromium".
+      # O Chromium será instalado pelo Playwright.
+      # ======================================================
+
+      - name: Instalar dependências
         run: |
 
           sudo apt-get update
@@ -28,70 +52,96 @@ jobs:
             pulseaudio-utils \
             xvfb \
             xdotool \
-            chromium \
             openssh-client \
-            python3-pip
+            python3-pip \
+            python3-venv
 
 
-      - name: Instalar Playwright
+      # ======================================================
+      # AMBIENTE PYTHON
+      # ======================================================
+
+      - name: Criar ambiente Python
         run: |
 
-          python3 -m pip install --upgrade pip
+          python3 -m venv .venv
+
+          . .venv/bin/activate
+
+          python -m pip install --upgrade pip
 
           pip install playwright
 
 
-      - name: Instalar dependencias do Chromium
+      # ======================================================
+      # CHROMIUM
+      # ======================================================
+
+      - name: Instalar Chromium do Playwright
         run: |
+
+          . .venv/bin/activate
+
+          playwright install chromium
 
           playwright install-deps chromium
 
 
-      - name: Verificar sistema
+      # ======================================================
+      # VERIFICAR INSTALAÇÃO
+      # ======================================================
+
+      - name: Verificar ambiente
         run: |
 
           echo "=========================================="
           echo "PYTHON"
+          echo "=========================================="
+
           python3 --version
 
           echo "=========================================="
-          echo "CHROMIUM"
-          chromium --version
-
-          echo "=========================================="
           echo "FFMPEG"
-          ffmpeg -version | head -n 1
-
           echo "=========================================="
-          echo "PULSEAUDIO"
-          pulseaudio --version
+
+          ffmpeg -version | head -n 3
 
           echo "=========================================="
           echo "PLAYWRIGHT"
-          python3 -c "import playwright; print('Playwright OK')"
+          echo "=========================================="
+
+          . .venv/bin/activate
+
+          playwright --version
 
 
-      - name: Verificar codigo
-        run: |
+      # ======================================================
+      # TRANSMISSÃO
+      # ======================================================
 
-          python3 -m py_compile app.py
+      - name: Iniciar transmissão
 
-          echo "Codigo Python OK"
-
-
-      - name: Iniciar transmissao
         env:
 
           DISPLAY: ":99"
+
+          PULSE_SINK: "webtv"
 
           PYTHONUNBUFFERED: "1"
 
         run: |
 
+          . .venv/bin/activate
+
           python3 app.py
 
 
-      - name: Guardar diagnosticos
+      # ======================================================
+      # SALVAR STREAM / DIAGNÓSTICOS
+      # ======================================================
+
+      - name: Salvar diagnósticos
+
         if: always()
 
         uses: actions/upload-artifact@v4
