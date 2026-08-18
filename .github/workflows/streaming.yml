@@ -4,7 +4,6 @@ on:
   workflow_dispatch:
 
 jobs:
-
   run-stream:
 
     runs-on: ubuntu-24.04
@@ -40,29 +39,17 @@ jobs:
       - name: Verificar sistema
         run: |
 
-          echo "========================================"
-          echo "FFMPEG"
-          echo "========================================"
+          echo "FFMPEG:"
+          ffmpeg -version | head -n 1
 
-          ffmpeg -version
-
-          echo "========================================"
-          echo "CHROMIUM"
-          echo "========================================"
-
+          echo "CHROMIUM:"
           chromium --version
 
-          echo "========================================"
-          echo "PYTHON"
-          echo "========================================"
+          echo "PULSEAUDIO:"
+          pulseaudio --version
 
+          echo "PYTHON:"
           python3 --version
-
-          echo "========================================"
-          echo "XDOTOOL"
-          echo "========================================"
-
-          xdotool --version
 
       - name: Iniciar transmissão
 
