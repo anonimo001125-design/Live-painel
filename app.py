@@ -28,7 +28,6 @@ URL_ALVO = (
     ".us-east5.run.app/watch"
 )
 
-
 processos = []
 ffmpeg_process = None
 
@@ -55,14 +54,12 @@ def encerrar(*args):
     log("=" * 60)
 
     try:
-        if ffmpeg_process:
-            if ffmpeg_process.poll() is None:
-                ffmpeg_process.terminate()
+        if ffmpeg_process and ffmpeg_process.poll() is None:
+            ffmpeg_process.terminate()
     except Exception:
         pass
 
     for processo in processos:
-
         try:
             if processo.poll() is None:
                 processo.terminate()
@@ -72,7 +69,6 @@ def encerrar(*args):
     time.sleep(2)
 
     for processo in processos:
-
         try:
             if processo.poll() is None:
                 processo.kill()
@@ -80,7 +76,6 @@ def encerrar(*args):
             pass
 
     log("Transmissão encerrada.")
-
     sys.exit(0)
 
 
@@ -100,22 +95,13 @@ def preparar_stream():
 
     for nome in os.listdir(STREAM_DIR):
 
-        caminho = os.path.join(
-            STREAM_DIR,
-            nome
-        )
+        caminho = os.path.join(STREAM_DIR, nome)
 
         try:
-
             if os.path.isfile(caminho):
                 os.remove(caminho)
-
         except Exception as erro:
-
-            log(
-                "[AVISO]",
-                erro
-            )
+            log("[AVISO]", erro)
 
 
 # ============================================================
@@ -149,20 +135,10 @@ def iniciar_xvfb():
     time.sleep(3)
 
     if xvfb.poll() is not None:
+        raise RuntimeError("Xvfb não conseguiu iniciar.")
 
-        raise RuntimeError(
-            "Xvfb não conseguiu iniciar."
-        )
-
-    log(
-        "Tela virtual:",
-        DISPLAY
-    )
-
-    log(
-        "Resolução:",
-        f"{WIDTH}x{HEIGHT}"
-    )
+    log("Tela virtual:", DISPLAY)
+    log("Resolução:", f"{WIDTH}x{HEIGHT}")
 
 
 # ============================================================
@@ -176,10 +152,7 @@ def iniciar_audio():
 
     runtime = "/tmp/pulse"
 
-    os.makedirs(
-        runtime,
-        exist_ok=True
-    )
+    os.makedirs(runtime, exist_ok=True)
 
     os.environ["PULSE_RUNTIME_PATH"] = runtime
 
@@ -201,16 +174,8 @@ def iniciar_audio():
     )
 
     if teste.returncode != 0:
-
         log(teste.stderr)
-
-        raise RuntimeError(
-            "PulseAudio não iniciou."
-        )
-
-    # --------------------------------------------------------
-    # Criar sink
-    # --------------------------------------------------------
+        raise RuntimeError("PulseAudio não iniciou.")
 
     sinks = subprocess.run(
         [
@@ -225,9 +190,7 @@ def iniciar_audio():
 
     if "webtv" not in sinks.stdout:
 
-        log(
-            "Criando áudio virtual webtv..."
-        )
+        log("Criando áudio virtual webtv...")
 
         resultado = subprocess.run(
             [
@@ -242,10 +205,8 @@ def iniciar_audio():
         )
 
         if resultado.returncode != 0:
-
             log(resultado.stdout)
             log(resultado.stderr)
-
             raise RuntimeError(
                 "Não foi possível criar webtv."
             )
@@ -279,7 +240,6 @@ def iniciar_audio():
     log(fontes.stdout)
 
     if "webtv.monitor" not in fontes.stdout:
-
         raise RuntimeError(
             "webtv.monitor não foi encontrado."
         )
@@ -314,7 +274,6 @@ def iniciar_servidor():
     time.sleep(2)
 
     if servidor.poll() is not None:
-
         raise RuntimeError(
             "Servidor HTTP encerrou."
         )
@@ -325,7 +284,7 @@ def iniciar_servidor():
 
 
 # ============================================================
-# TÚNEL - MESMO MODELO QUE FUNCIONAVA
+# TÚNEL
 # ============================================================
 
 def iniciar_tunel():
@@ -339,28 +298,19 @@ def iniciar_tunel():
             "ssh",
             "-o",
             "StrictHostKeyChecking=no",
-
             "-o",
             "ServerAliveInterval=30",
-
             "-o",
             "ServerAliveCountMax=3",
-
             "-o",
             "ExitOnForwardFailure=yes",
-
             "-R",
             f"80:localhost:{HTTP_PORT}",
-
             "nokey@localhost.run"
         ],
-
         stdout=subprocess.PIPE,
-
         stderr=subprocess.STDOUT,
-
         text=True,
-
         bufsize=1
     )
 
@@ -382,27 +332,15 @@ def iniciar_tunel():
 
                 linha = linha.strip()
 
-                log(
-                    "[TUNEL]",
-                    linha
-                )
+                log("[TUNEL]", linha)
 
-                # ------------------------------------------------
-                # Procura o endereço HTTPS
-                # ------------------------------------------------
-
-                if (
-                    "https://" in linha
-                    and not encontrado
-                ):
+                if "https://" in linha and not encontrado:
 
                     partes = linha.split()
 
                     for parte in partes:
 
-                        if parte.startswith(
-                            "https://"
-                        ):
+                        if parte.startswith("https://"):
 
                             url = parte.strip(
                                 ".,;()[]{}<>\"'"
@@ -417,20 +355,11 @@ def iniciar_tunel():
                             log("        LINK DA TRANSMISSÃO")
                             log("=" * 60)
                             log("")
-                            log(
-                                "LINK PRINCIPAL:"
-                            )
-                            log(
-                                url
-                            )
+                            log("LINK PRINCIPAL:")
+                            log(url)
                             log("")
-                            log(
-                                "LINK HLS:"
-                            )
-                            log(
-                                url +
-                                "/live.m3u8"
-                            )
+                            log("LINK HLS:")
+                            log(url + "/live.m3u8")
                             log("")
                             log("=" * 60)
                             log("")
@@ -472,7 +401,6 @@ def iniciar_ffmpeg():
     ffmpeg_cmd = [
 
         "ffmpeg",
-
         "-y",
 
         # ----------------------------------------------------
@@ -505,7 +433,7 @@ def iniciar_ffmpeg():
         "webtv.monitor",
 
         # ----------------------------------------------------
-        # CODEC
+        # VÍDEO
         # ----------------------------------------------------
 
         "-c:v",
@@ -537,6 +465,10 @@ def iniciar_ffmpeg():
 
         "-sc_threshold",
         "0",
+
+        # ----------------------------------------------------
+        # ÁUDIO
+        # ----------------------------------------------------
 
         "-c:a",
         "aac",
@@ -576,15 +508,7 @@ def iniciar_ffmpeg():
         saida
     ]
 
-    log(
-        "Comando FFmpeg:"
-    )
-
-    log(
-        " ".join(ffmpeg_cmd)
-    )
-
-    log("")
+    log("FFmpeg iniciando...")
 
     ffmpeg_process = subprocess.Popen(
         ffmpeg_cmd
@@ -593,14 +517,11 @@ def iniciar_ffmpeg():
     time.sleep(5)
 
     if ffmpeg_process.poll() is not None:
-
         raise RuntimeError(
             "FFmpeg encerrou."
         )
 
-    log(
-        "FFmpeg funcionando."
-    )
+    log("FFmpeg funcionando.")
 
 
 # ============================================================
@@ -617,15 +538,13 @@ def diagnosticar_videos(page):
 
                 const videos =
                     Array.from(
-                        document.querySelectorAll(
-                            "video"
-                        )
+                        document.querySelectorAll("video")
                     );
 
                 return videos.map(
                     (video, index) => ({
 
-                        index,
+                        index: index,
 
                         paused:
                             video.paused,
@@ -708,9 +627,7 @@ def tentar_reproduzir(page):
 
                 const videos =
                     Array.from(
-                        document.querySelectorAll(
-                            "video"
-                        )
+                        document.querySelectorAll("video")
                     );
 
                 const resultado = [];
@@ -728,7 +645,7 @@ def tentar_reproduzir(page):
 
                         video.autoplay = true;
 
-                        let play = "ok";
+                        let estado = "ok";
 
                         try {
 
@@ -741,8 +658,7 @@ def tentar_reproduzir(page):
 
                         } catch (erro) {
 
-                            play =
-                                String(erro);
+                            estado = String(erro);
                         }
 
                         resultado.push({
@@ -765,15 +681,14 @@ def tentar_reproduzir(page):
                             currentTime:
                                 video.currentTime,
 
-                            play:
-                                play
+                            estado:
+                                estado
                         });
 
                     } catch (erro) {
 
                         resultado.push({
-                            erro:
-                                String(erro)
+                            erro: String(erro)
                         });
                     }
                 }
@@ -792,6 +707,119 @@ def tentar_reproduzir(page):
 
         log(
             "[PLAYER] Erro:",
+            erro
+        )
+
+
+# ============================================================
+# CLIQUE NO VÍDEO = TELA CHEIA
+# ============================================================
+
+def ativar_tela_cheia(page):
+
+    log("")
+    log(
+        "[PLAYER] Aguardando reprodução..."
+    )
+
+    time.sleep(5)
+
+    try:
+
+        # Verifica se existe vídeo e aguarda
+        # o player estar visível.
+
+        page.wait_for_selector(
+            "video",
+            state="visible",
+            timeout=30000
+        )
+
+        log(
+            "[PLAYER] Vídeo encontrado."
+        )
+
+    except Exception as erro:
+
+        log(
+            "[PLAYER] Vídeo não encontrado diretamente:",
+            erro
+        )
+
+    time.sleep(2)
+
+    try:
+
+        log(
+            "[PLAYER] Executando UM clique no centro da reprodução..."
+        )
+
+        # O site foi feito para entrar em fullscreen
+        # quando qualquer ponto da reprodução recebe um toque.
+
+        page.mouse.click(
+            WIDTH // 2,
+            HEIGHT // 2
+        )
+
+        log(
+            "[PLAYER] Clique realizado."
+        )
+
+    except Exception as erro:
+
+        log(
+            "[PLAYER] Erro no clique:",
+            erro
+        )
+
+    # Dá tempo para o próprio site ativar o fullscreen.
+    time.sleep(4)
+
+    try:
+
+        estado = page.evaluate(
+            """
+            () => ({
+                fullscreen:
+                    !!document.fullscreenElement,
+
+                video:
+                    (() => {
+
+                        const v =
+                            document.querySelector("video");
+
+                        if (!v) return null;
+
+                        return {
+
+                            paused:
+                                v.paused,
+
+                            width:
+                                v.videoWidth,
+
+                            height:
+                                v.videoHeight,
+
+                            currentTime:
+                                v.currentTime
+                        };
+                    })()
+            })
+            """
+        )
+
+        log(
+            "[PLAYER] Estado após clique:",
+            estado
+        )
+
+    except Exception as erro:
+
+        log(
+            "[PLAYER] Não foi possível verificar fullscreen:",
             erro
         )
 
@@ -836,13 +864,8 @@ def iniciar_navegador():
 
                 "--force-device-scale-factor=1",
 
-                "--start-fullscreen",
-
-                "--kiosk",
-
                 "--ozone-platform=x11",
 
-                # Evita problemas gráficos do runner
                 "--use-gl=swiftshader",
 
                 "--disable-gpu-compositing",
@@ -890,6 +913,10 @@ def iniciar_navegador():
                 )
         )
 
+        # ----------------------------------------------------
+        # ABRIR SITE
+        # ----------------------------------------------------
+
         log(
             "Abrindo painel:"
         )
@@ -914,63 +941,40 @@ def iniciar_navegador():
             )
 
         log(
-            "Aguardando painel..."
+            "Aguardando página..."
         )
 
         time.sleep(8)
 
         # ----------------------------------------------------
-        # FULLSCREEN
+        # REPRODUÇÃO
         # ----------------------------------------------------
-
-        try:
-
-            page.keyboard.press(
-                "F11"
-            )
-
-        except Exception:
-            pass
-
-        # ----------------------------------------------------
-        # PRIMEIRO CLIQUE
-        # ----------------------------------------------------
-
-        try:
-
-            page.mouse.click(
-                WIDTH // 2,
-                HEIGHT // 2
-            )
-
-            log(
-                "[PLAYER] Clique inicial executado."
-            )
-
-        except Exception as erro:
-
-            log(
-                "[PLAYER] Clique:",
-                erro
-            )
-
-        time.sleep(3)
-
-        # ----------------------------------------------------
-        # PLAYER
-        # ----------------------------------------------------
-
-        diagnosticar_videos(
-            page
-        )
 
         tentar_reproduzir(
             page
         )
 
-        time.sleep(5)
+        time.sleep(3)
 
         diagnosticar_videos(
+            page
+        )
+
+        # ----------------------------------------------------
+        # UM CLIQUE NO VÍDEO
+        #
+        # O próprio site entra em tela cheia.
+        # ----------------------------------------------------
+
+        ativar_tela_cheia(
+            page
+        )
+
+        # ----------------------------------------------------
+        # CONFIRMAR REPRODUÇÃO
+        # ----------------------------------------------------
+
+        tentar_reproduzir(
             page
         )
 
@@ -982,11 +986,13 @@ def iniciar_navegador():
 
         # ----------------------------------------------------
         # MONITORAMENTO
+        #
+        # NÃO CLICA MAIS NO VÍDEO.
         # ----------------------------------------------------
 
         while True:
 
-            time.sleep(5)
+            time.sleep(10)
 
             try:
 
@@ -999,9 +1005,6 @@ def iniciar_navegador():
                 videos = diagnosticar_videos(
                     page
                 )
-
-                # Se todos estiverem parados,
-                # tenta novamente.
 
                 algum_rodando = False
 
@@ -1025,7 +1028,7 @@ def iniciar_navegador():
                 if not algum_rodando:
 
                     log(
-                        "[PLAYER] Nenhum vídeo ativo."
+                        "[PLAYER] Vídeo parou. Tentando reproduzir novamente..."
                     )
 
                     tentar_reproduzir(
@@ -1043,7 +1046,7 @@ def iniciar_navegador():
 
 
 # ============================================================
-# MAIN
+# INICIAR
 # ============================================================
 
 def iniciar():
@@ -1056,12 +1059,7 @@ def iniciar():
 
     iniciar_servidor()
 
-    # IMPORTANTE:
-    # FFmpeg começa antes do túnel.
-
     iniciar_ffmpeg()
-
-    # Aguarda o HLS realmente existir.
 
     time.sleep(5)
 
@@ -1071,7 +1069,7 @@ def iniciar():
 
 
 # ============================================================
-# EXECUÇÃO
+# MAIN
 # ============================================================
 
 if __name__ == "__main__":
@@ -1086,9 +1084,7 @@ if __name__ == "__main__":
         log("=" * 60)
         log("ERRO FATAL")
         log("=" * 60)
-        log(
-            str(erro)
-        )
+        log(str(erro))
         log("=" * 60)
 
         encerrar()
