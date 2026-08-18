@@ -13,29 +13,16 @@ jobs:
 
     steps:
 
-      # ======================================================
-      # CÓDIGO
-      # ======================================================
-
       - name: Baixar código
         uses: actions/checkout@v4
 
 
-      # ======================================================
-      # DEPENDÊNCIAS
-      # ======================================================
-
       - name: Instalar dependências
-        timeout-minutes: 10
         run: |
-
-          echo "========================================"
-          echo "INSTALANDO DEPENDÊNCIAS"
-          echo "========================================"
 
           sudo apt-get update
 
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          sudo apt-get install -y \
             ffmpeg \
             pulseaudio \
             pulseaudio-utils \
@@ -45,21 +32,9 @@ jobs:
             python3-pip \
             python3-venv
 
-          echo "========================================"
-          echo "DEPENDÊNCIAS INSTALADAS"
-          echo "========================================"
-
-
-      # ======================================================
-      # PYTHON
-      # ======================================================
 
       - name: Preparar Python
         run: |
-
-          echo "========================================"
-          echo "PREPARANDO PYTHON"
-          echo "========================================"
 
           python3 -m venv .venv
 
@@ -67,87 +42,42 @@ jobs:
 
           python -m pip install --upgrade pip
 
-          pip install --no-cache-dir playwright
+          pip install playwright
 
-          echo "Python pronto."
-
-          python --version
-
-          playwright --version
-
-
-      # ======================================================
-      # CHROMIUM
-      # ======================================================
 
       - name: Instalar Chromium
-        timeout-minutes: 10
         run: |
-
-          echo "========================================"
-          echo "INSTALANDO CHROMIUM"
-          echo "========================================"
 
           . .venv/bin/activate
 
           playwright install chromium
 
-          echo "Chromium instalado."
+          playwright install-deps chromium
 
-          playwright --version
-
-
-      # ======================================================
-      # VERIFICAÇÃO
-      # ======================================================
 
       - name: Verificar ambiente
         run: |
 
-          echo "========================================"
-          echo "VERIFICAÇÃO"
-          echo "========================================"
+          echo "=============================="
+          echo "PYTHON"
+          echo "=============================="
 
-          echo ""
-          echo "Python:"
           python3 --version
 
-          echo ""
-          echo "FFmpeg:"
+          echo "=============================="
+          echo "FFMPEG"
+          echo "=============================="
+
           ffmpeg -version | head -n 3
 
-          echo ""
-          echo "Xvfb:"
-          which Xvfb
-
-          echo ""
-          echo "PulseAudio:"
-          which pulseaudio
-
-          echo ""
-          echo "xdotool:"
-          which xdotool
-
-          echo ""
-          echo "SSH:"
-          which ssh
-
-          echo ""
-          echo "Playwright:"
+          echo "=============================="
+          echo "PLAYWRIGHT"
+          echo "=============================="
 
           . .venv/bin/activate
 
           playwright --version
 
-          echo ""
-          echo "========================================"
-          echo "AMBIENTE OK"
-          echo "========================================"
-
-
-      # ======================================================
-      # STREAM
-      # ======================================================
 
       - name: Iniciar transmissão
         env:
@@ -160,18 +90,10 @@ jobs:
 
         run: |
 
-          echo "========================================"
-          echo "INICIANDO TRANSMISSÃO"
-          echo "========================================"
-
           . .venv/bin/activate
 
-          python3 -u app.py
+          python3 app.py
 
-
-      # ======================================================
-      # DIAGNÓSTICOS
-      # ======================================================
 
       - name: Salvar diagnósticos
         if: always()
