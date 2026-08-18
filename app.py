@@ -22,8 +22,9 @@ DISPLAY = ":99"
 WIDTH = 1280
 HEIGHT = 720
 
-# 25 FPS reduz bastante a carga sem deixar a imagem ruim
-FPS = 25
+# Reduzimos para 20 FPS para aliviar X11 + Chromium + FFmpeg.
+# O vídeo continua visualmente fluido para uma transmissão de TV.
+FPS = 20
 
 STREAM_DIR = Path("stream")
 
@@ -82,7 +83,6 @@ def stop_process(process, name):
                 process.wait(timeout=5)
 
             except subprocess.TimeoutExpired:
-
                 process.kill()
 
     except Exception as e:
@@ -93,8 +93,6 @@ def stop_process(process, name):
 
 
 def cleanup():
-
-    global http_server
 
     stop_event.set()
 
@@ -192,11 +190,9 @@ def clean_stream():
         try:
 
             if item.is_file():
-
                 item.unlink()
 
             elif item.is_dir():
-
                 shutil.rmtree(item)
 
         except Exception as e:
@@ -221,7 +217,6 @@ def start_xvfb():
     log(f"RESOLUÇÃO: {WIDTH}x{HEIGHT}")
 
     env = os.environ.copy()
-
     env["DISPLAY"] = DISPLAY
 
     xvfb = subprocess.Popen(
@@ -239,9 +234,7 @@ def start_xvfb():
         ],
 
         stdout=subprocess.DEVNULL,
-
         stderr=subprocess.DEVNULL,
-
         env=env
     )
 
@@ -269,7 +262,6 @@ def start_pulseaudio():
     log("Criando sink virtual webtv...")
 
     env = os.environ.copy()
-
     env["DISPLAY"] = DISPLAY
 
     subprocess.run(
@@ -289,9 +281,7 @@ def start_pulseaudio():
         ],
 
         stdout=subprocess.DEVNULL,
-
         stderr=subprocess.DEVNULL,
-
         env=env
     )
 
@@ -307,7 +297,6 @@ def start_pulseaudio():
         ],
 
         capture_output=True,
-
         text=True
     )
 
@@ -324,15 +313,17 @@ def start_pulseaudio():
             ],
 
             capture_output=True,
-
             text=True
         )
 
         if result.returncode != 0:
 
             log(
-                "[AVISO] Não consegui criar "
-                "o sink webtv."
+                "[AVISO] Falha ao criar sink webtv:"
+            )
+
+            log(
+                result.stderr.strip()
             )
 
     time.sleep(2)
@@ -347,15 +338,13 @@ def start_pulseaudio():
         ],
 
         capture_output=True,
-
         text=True
     )
 
     log("Fontes de áudio:")
 
-    log(
-        sources.stdout.strip()
-    )
+    if sources.stdout.strip():
+        log(sources.stdout.strip())
 
     log("Áudio pronto.")
 
@@ -396,6 +385,11 @@ class StreamHandler(SimpleHTTPRequestHandler):
         self.send_header(
             "Pragma",
             "no-cache"
+        )
+
+        self.send_header(
+            "Expires",
+            "0"
         )
 
         super().end_headers()
@@ -464,7 +458,7 @@ const video =
 
 let hls = null;
 
-function iniciar() {
+function iniciarPlayer() {
 
     if (
         video.canPlayType(
@@ -496,21 +490,37 @@ function iniciar() {
 
         hls = new Hls({
 
+            /*
+             * Prioridade máxima:
+             * estabilidade em vez de baixa latência.
+             */
+
             lowLatencyMode: false,
 
             enableWorker: true,
 
-            liveSyncDurationCount: 4,
+            startLevel: -1,
 
-            liveMaxLatencyDurationCount: 8,
+            /*
+             * Mantém vários segmentos
+             * disponíveis no buffer.
+             */
 
-            maxBufferLength: 30,
+            liveSyncDurationCount: 5,
 
-            maxMaxBufferLength: 60,
+            liveMaxLatencyDurationCount: 10,
+
+            maxBufferLength: 45,
+
+            maxMaxBufferLength: 90,
 
             backBufferLength: 30,
 
-            startFragPrefetch: true
+            startFragPrefetch: true,
+
+            capLevelToPlayerSize: true,
+
+            testBandwidth: true
         });
 
         hls.loadSource(
@@ -547,11 +557,13 @@ function iniciar() {
                         function() {
 
                             try {
+
                                 hls.startLoad();
+
                             } catch(e) {}
 
                         },
-                        1000
+                        1500
                     );
 
                 }
@@ -569,14 +581,36 @@ function iniciar() {
 
                 }
 
+                else {
+
+                    try {
+
+                        hls.destroy();
+
+                    } catch(e) {}
+
+                    setTimeout(
+                        iniciarPlayer,
+                        2000
+                    );
+                }
             }
         );
+    };
+
+    script.onerror = function() {
+
+        setTimeout(
+            iniciarPlayer,
+            3000
+        );
+
     };
 
     document.head.appendChild(script);
 }
 
-iniciar();
+iniciarPlayer();
 
 </script>
 
@@ -604,11 +638,8 @@ iniciar();
             self.end_headers()
 
             try:
-
                 self.wfile.write(data)
-
             except BrokenPipeError:
-
                 pass
 
             return
@@ -628,10 +659,10 @@ def start_http():
         StreamHandler
     )
 
+    http_server.daemon_threads = True
+
     thread = threading.Thread(
-
         target=http_server.serve_forever,
-
         daemon=True
     )
 
@@ -679,7 +710,6 @@ def start_chromium():
     browser = find_browser()
 
     env = os.environ.copy()
-
     env["DISPLAY"] = DISPLAY
 
     profile = Path(
@@ -729,6 +759,8 @@ def start_chromium():
         "--disable-default-apps",
 
         "--no-first-run",
+
+        "--disable-session-crashed-bubble",
 
         "--autoplay-policy=no-user-gesture-required",
 
@@ -783,21 +815,22 @@ def start_chromium():
 
                 text = text.strip()
 
-                if text:
+                if not text:
+                    continue
 
-                    # Evita inundar o terminal
-                    # com os mesmos erros repetidos.
+                # Esses erros são da página e não
+                # precisam inundar o terminal.
 
-                    if (
-                        "Firestore" in text
-                        or "requestFullscreen" in text
-                    ):
-                        continue
+                if "Firestore" in text:
+                    continue
 
-                    log(
-                        "[CHROMIUM] "
-                        + text
-                    )
+                if "requestFullscreen" in text:
+                    continue
+
+                log(
+                    "[CHROMIUM] "
+                    + text
+                )
 
         except Exception:
             pass
@@ -899,7 +932,8 @@ def fullscreen():
     except Exception as e:
 
         log(
-            f"[AVISO] Fullscreen: {e}"
+            "[AVISO] Fullscreen: "
+            + str(e)
         )
 
 
@@ -1016,6 +1050,13 @@ def start_ffmpeg():
         "warning",
 
         # ====================================================
+        # CONTROLE DE TIMESTAMP
+        # ====================================================
+
+        "-fflags",
+        "+genpts",
+
+        # ====================================================
         # X11
         # ====================================================
 
@@ -1038,7 +1079,7 @@ def start_ffmpeg():
         f"{DISPLAY}.0",
 
         # ====================================================
-        # PULSE
+        # PULSE AUDIO
         # ====================================================
 
         "-thread_queue_size",
@@ -1051,11 +1092,18 @@ def start_ffmpeg():
         "webtv.monitor",
 
         # ====================================================
-        # VÍDEO
+        # MAP
         # ====================================================
 
         "-map",
         "0:v:0",
+
+        "-map",
+        "1:a:0",
+
+        # ====================================================
+        # VÍDEO
+        # ====================================================
 
         "-c:v",
         "libx264",
@@ -1066,18 +1114,24 @@ def start_ffmpeg():
         "-pix_fmt",
         "yuv420p",
 
+        # FPS CONSTANTE
+        "-fps_mode",
+        "cfr",
+
         "-r",
         str(FPS),
 
+        # GOP
         "-g",
-        "50",
+        str(FPS * 2),
 
         "-keyint_min",
-        "50",
+        str(FPS * 2),
 
         "-sc_threshold",
         "0",
 
+        # Bitrate
         "-b:v",
         "1200k",
 
@@ -1090,9 +1144,6 @@ def start_ffmpeg():
         # ====================================================
         # ÁUDIO
         # ====================================================
-
-        "-map",
-        "1:a:0",
 
         "-c:a",
         "aac",
@@ -1107,6 +1158,18 @@ def start_ffmpeg():
         "2",
 
         # ====================================================
+        # CORREÇÃO DE CLOCK DO ÁUDIO
+        # ====================================================
+
+        "-af",
+        (
+            "aresample="
+            "async=1000:"
+            "min_hard_comp=0.100:"
+            "first_pts=0"
+        ),
+
+        # ====================================================
         # HLS
         # ====================================================
 
@@ -1114,13 +1177,17 @@ def start_ffmpeg():
         "hls",
 
         "-hls_time",
-        "4",
+        "6",
 
         "-hls_list_size",
-        "10",
+        "8",
 
         "-hls_flags",
-        "delete_segments+append_list+independent_segments",
+        (
+            "delete_segments+"
+            "append_list+"
+            "independent_segments"
+        ),
 
         "-hls_delete_threshold",
         "3",
@@ -1197,10 +1264,10 @@ def start_ffmpeg():
 
 
 # ============================================================
-# ESPERAR HLS
+# HLS
 # ============================================================
 
-def wait_hls(timeout=40):
+def wait_hls(timeout=50):
 
     line()
 
@@ -1242,7 +1309,7 @@ def wait_hls(timeout=40):
         time.sleep(1)
 
     log(
-        "[HLS] Playlist não ficou pronta."
+        "[HLS] Playlist não foi criada."
     )
 
     return False
@@ -1255,14 +1322,11 @@ def wait_hls(timeout=40):
 def get_tunnel_url(text):
 
     match = re.search(
-
         r"https://[a-zA-Z0-9.-]+\.lhr\.life",
-
         text
     )
 
     if match:
-
         return match.group(0)
 
     return None
@@ -1279,8 +1343,6 @@ def start_tunnel():
         "[5] Iniciando túnel localhost.run..."
     )
 
-    # Remove túnel anterior
-
     if tunnel is not None:
 
         try:
@@ -1290,13 +1352,8 @@ def start_tunnel():
                 tunnel.terminate()
 
                 try:
-
-                    tunnel.wait(
-                        timeout=3
-                    )
-
+                    tunnel.wait(timeout=3)
                 except subprocess.TimeoutExpired:
-
                     tunnel.kill()
 
         except Exception:
@@ -1390,7 +1447,6 @@ def start_tunnel():
         if not text:
 
             time.sleep(0.2)
-
             continue
 
         text = text.strip()
@@ -1455,7 +1511,7 @@ def start_tunnel():
 
 
 # ============================================================
-# MONITOR TÚNEL
+# MONITOR DO TÚNEL
 # ============================================================
 
 def monitor_tunnel():
@@ -1475,7 +1531,6 @@ def monitor_tunnel():
         if tunnel is not None:
 
             if tunnel.poll() is None:
-
                 continue
 
             log("")
@@ -1495,8 +1550,8 @@ def monitor_tunnel():
         ):
 
             log(
-                f"[TUNEL] Nova tentativa "
-                f"em {delay}s..."
+                f"[TUNEL] Reconectando em "
+                f"{delay}s..."
             )
 
             time.sleep(delay)
@@ -1607,50 +1662,83 @@ def main():
 
     try:
 
+        # ----------------------------------------------------
         # 1
+        # ----------------------------------------------------
+
         clean_stream()
 
+        # ----------------------------------------------------
         # Dependências
+        # ----------------------------------------------------
+
         check_dependencies()
 
+        # ----------------------------------------------------
         # 2
+        # ----------------------------------------------------
+
         start_xvfb()
 
+        # ----------------------------------------------------
         # 3
+        # ----------------------------------------------------
+
         start_pulseaudio()
 
+        # ----------------------------------------------------
         # 4
+        # ----------------------------------------------------
+
         start_http()
 
+        # ----------------------------------------------------
         # 5
+        # ----------------------------------------------------
+
         start_tunnel()
 
+        # ----------------------------------------------------
         # 6
+        # ----------------------------------------------------
+
         start_chromium()
 
         time.sleep(5)
 
+        # ----------------------------------------------------
         # Diagnóstico
+        # ----------------------------------------------------
+
         test_x11()
 
+        # ----------------------------------------------------
         # Tela cheia
+        # ----------------------------------------------------
+
         fullscreen()
 
         time.sleep(3)
 
+        # ----------------------------------------------------
         # FFmpeg
+        # ----------------------------------------------------
+
         start_ffmpeg()
 
+        # ----------------------------------------------------
         # HLS
+        # ----------------------------------------------------
+
         if not wait_hls():
 
             raise RuntimeError(
                 "HLS não foi criado."
             )
 
-        # ====================================================
-        # TRANSMISSÃO ATIVA
-        # ====================================================
+        # ----------------------------------------------------
+        # TRANSMISSÃO
+        # ----------------------------------------------------
 
         line()
 
@@ -1691,29 +1779,23 @@ def main():
 
         line()
 
-        # ====================================================
+        # ----------------------------------------------------
         # MONITORES
-        # ====================================================
+        # ----------------------------------------------------
 
         threading.Thread(
-
             target=monitor_tunnel,
-
             daemon=True
-
         ).start()
 
         threading.Thread(
-
             target=monitor_ffmpeg,
-
             daemon=True
-
         ).start()
 
-        # ====================================================
+        # ----------------------------------------------------
         # LOOP
-        # ====================================================
+        # ----------------------------------------------------
 
         while not stop_event.is_set():
 
