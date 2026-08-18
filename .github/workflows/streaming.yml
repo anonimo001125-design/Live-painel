@@ -13,17 +13,9 @@ jobs:
 
     steps:
 
-      # ======================================================
-      # CÓDIGO
-      # ======================================================
-
       - name: Baixar código
         uses: actions/checkout@v4
 
-
-      # ======================================================
-      # DEPENDÊNCIAS
-      # ======================================================
 
       - name: Instalar dependências
         run: |
@@ -41,10 +33,6 @@ jobs:
             python3-venv
 
 
-      # ======================================================
-      # PYTHON
-      # ======================================================
-
       - name: Preparar Python
         run: |
 
@@ -57,12 +45,6 @@ jobs:
           pip install playwright
 
 
-      # ======================================================
-      # CHROMIUM
-      #
-      # NÃO instala chromium pelo apt.
-      # ======================================================
-
       - name: Instalar Chromium
         run: |
 
@@ -73,37 +55,29 @@ jobs:
           playwright install-deps chromium
 
 
-      # ======================================================
-      # VERIFICAÇÃO
-      # ======================================================
-
       - name: Verificar ambiente
         run: |
 
           echo "=============================="
-          echo "Python"
+          echo "PYTHON"
           echo "=============================="
 
           python3 --version
 
           echo "=============================="
-          echo "FFmpeg"
+          echo "FFMPEG"
           echo "=============================="
 
           ffmpeg -version | head -n 3
 
           echo "=============================="
-          echo "Playwright"
+          echo "PLAYWRIGHT"
           echo "=============================="
 
           . .venv/bin/activate
 
           playwright --version
 
-
-      # ======================================================
-      # TRANSMISSÃO
-      # ======================================================
 
       - name: Iniciar transmissão
         env:
@@ -120,10 +94,6 @@ jobs:
 
           python3 app.py
 
-
-      # ======================================================
-      # DIAGNÓSTICOS
-      # ======================================================
 
       - name: Salvar diagnósticos
         if: always()
