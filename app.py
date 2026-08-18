@@ -31,8 +31,6 @@ URL_ALVO = (
 processos = []
 ffmpeg_process = None
 
-MEDIA_URLS = []
-
 ENCERRANDO = False
 
 
@@ -51,6 +49,7 @@ def log(*args):
 def encerrar(*args):
 
     global ENCERRANDO
+    global ffmpeg_process
 
     if ENCERRANDO:
         return
@@ -62,27 +61,17 @@ def encerrar(*args):
     log("ENCERRANDO TRANSMISSÃO")
     log("=" * 70)
 
-    global ffmpeg_process
-
     try:
-
-        if (
-            ffmpeg_process
-            and
-            ffmpeg_process.poll() is None
-        ):
+        if ffmpeg_process and ffmpeg_process.poll() is None:
             ffmpeg_process.terminate()
-
     except Exception:
         pass
 
     for processo in processos:
 
         try:
-
             if processo.poll() is None:
                 processo.terminate()
-
         except Exception:
             pass
 
@@ -91,31 +80,21 @@ def encerrar(*args):
     for processo in processos:
 
         try:
-
             if processo.poll() is None:
                 processo.kill()
-
         except Exception:
             pass
 
     log("Transmissão encerrada.")
-
     sys.exit(0)
 
 
-signal.signal(
-    signal.SIGTERM,
-    encerrar
-)
-
-signal.signal(
-    signal.SIGINT,
-    encerrar
-)
+signal.signal(signal.SIGTERM, encerrar)
+signal.signal(signal.SIGINT, encerrar)
 
 
 # ============================================================
-# PREPARAR STREAM
+# STREAM
 # ============================================================
 
 def preparar_stream():
@@ -141,10 +120,7 @@ def preparar_stream():
 
         except Exception as erro:
 
-            log(
-                "[AVISO]",
-                erro
-            )
+            log("[AVISO]", erro)
 
 
 # ============================================================
@@ -184,8 +160,13 @@ def iniciar_xvfb():
         )
 
     log(
-        "Xvfb ativo:",
+        "Tela virtual:",
         DISPLAY
+    )
+
+    log(
+        "Resolução:",
+        f"{WIDTH}x{HEIGHT}"
     )
 
 
@@ -221,10 +202,7 @@ def iniciar_audio():
     time.sleep(3)
 
     teste = subprocess.run(
-        [
-            "pactl",
-            "info"
-        ],
+        ["pactl", "info"],
         capture_output=True,
         text=True
     )
@@ -251,7 +229,7 @@ def iniciar_audio():
     if "webtv" not in sinks.stdout:
 
         log(
-            "Criando sink webtv..."
+            "Criando áudio virtual webtv..."
         )
 
         resultado = subprocess.run(
@@ -311,11 +289,11 @@ def iniciar_audio():
             "webtv.monitor não foi encontrado."
         )
 
-    log("PulseAudio pronto.")
+    log("Áudio pronto.")
 
 
 # ============================================================
-# SERVIDOR
+# SERVIDOR HTTP
 # ============================================================
 
 def iniciar_servidor():
@@ -347,8 +325,7 @@ def iniciar_servidor():
         )
 
     log(
-        "Servidor HTTP ativo:",
-        HTTP_PORT
+        f"Servidor HTTP ativo na porta {HTTP_PORT}."
     )
 
 
@@ -401,15 +378,11 @@ def iniciar_tunel():
 
                 linha = linha.strip()
 
-                log(
-                    "[TUNEL]",
-                    linha
-                )
+                log("[TUNEL]", linha)
 
                 if (
                     "https://" in linha
-                    and
-                    not encontrado
+                    and not encontrado
                 ):
 
                     for parte in linha.split():
@@ -435,10 +408,7 @@ def iniciar_tunel():
                             log(url)
                             log("")
                             log("LINK HLS:")
-                            log(
-                                url +
-                                "/live.m3u8"
-                            )
+                            log(url + "/live.m3u8")
                             log("")
                             log("=" * 70)
                             log("")
@@ -459,59 +429,13 @@ def iniciar_tunel():
 
 
 # ============================================================
-# DETECTAR MÍDIA
-# ============================================================
-
-def registrar_midia(request):
-
-    try:
-
-        url = request.url.lower()
-
-        extensoes = (
-            ".m3u8",
-            ".mpd",
-            ".mp4",
-            ".webm",
-            ".m4v"
-        )
-
-        if not any(
-            ext in url
-            for ext in extensoes
-        ):
-            return
-
-        original = request.url
-
-        if original not in MEDIA_URLS:
-
-            MEDIA_URLS.append(
-                original
-            )
-
-            log("")
-            log(
-                "[MEDIA] Detectado:"
-            )
-            log(
-                original
-            )
-
-    except Exception:
-        pass
-
-
-# ============================================================
 # REPRODUÇÃO
 # ============================================================
 
 def tentar_reproduzir(page):
 
     log("")
-    log(
-        "[PLAYER] Tentando reproduzir..."
-    )
+    log("[PLAYER] Tentando reproduzir...")
 
     try:
 
@@ -526,9 +450,7 @@ def tentar_reproduzir(page):
 
                 const resultado = [];
 
-                for (
-                    const video of videos
-                ) {
+                for (const video of videos) {
 
                     try {
 
@@ -545,17 +467,16 @@ def tentar_reproduzir(page):
 
                         try {
 
-                            const p =
+                            const promessa =
                                 video.play();
 
-                            if (p) {
-                                await p;
+                            if (promessa) {
+                                await promessa;
                             }
 
                         } catch (erro) {
 
-                            estado =
-                                String(erro);
+                            estado = String(erro);
                         }
 
                         resultado.push({
@@ -578,17 +499,14 @@ def tentar_reproduzir(page):
                             currentTime:
                                 video.currentTime,
 
-                            src:
-                                video.currentSrc || "",
-
-                            estado
+                            estado:
+                                estado
                         });
 
                     } catch (erro) {
 
                         resultado.push({
-                            erro:
-                                String(erro)
+                            erro: String(erro)
                         });
                     }
                 }
@@ -599,7 +517,7 @@ def tentar_reproduzir(page):
         )
 
         log(
-            "[PLAYER]",
+            "[PLAYER] Resultado:",
             resultado
         )
 
@@ -618,96 +536,98 @@ def tentar_reproduzir(page):
 def ativar_tela_cheia(page):
 
     log("")
-    log(
-        "[PLAYER] Tentando ativar fullscreen..."
-    )
+    log("=" * 70)
+    log("[PLAYER] TENTANDO FULLSCREEN")
+    log("=" * 70)
 
     try:
 
-        page.wait_for_selector(
-            "video",
+        video = page.locator(
+            "video"
+        ).first
+
+        video.wait_for(
             state="visible",
             timeout=30000
         )
 
-    except Exception:
-
         log(
-            "[PLAYER] Vídeo não encontrado."
+            "[PLAYER] Vídeo encontrado."
         )
 
-        return
+        video.scroll_into_view_if_needed()
 
-    try:
+        time.sleep(1)
 
-        info = page.evaluate(
-            """
-            () => {
+        box = video.bounding_box()
 
-                const v =
-                    document.querySelector("video");
+        if not box:
 
-                if (!v)
-                    return null;
+            raise RuntimeError(
+                "Não foi possível obter posição do vídeo."
+            )
 
-                const r =
-                    v.getBoundingClientRect();
+        x = box["width"] / 2
+        y = box["height"] / 2
 
-                return {
+        log(
+            "[PLAYER] Área do vídeo:",
+            box
+        )
 
-                    x:
-                        r.left +
-                        r.width / 2,
+        # ----------------------------------------------------
+        # MOVIMENTO DO MOUSE
+        # ----------------------------------------------------
 
-                    y:
-                        r.top +
-                        r.height / 2
-                };
+        page.mouse.move(
+            box["x"] + x,
+            box["y"] + y
+        )
+
+        time.sleep(1)
+
+        # ----------------------------------------------------
+        # PRIMEIRO CLIQUE
+        # ----------------------------------------------------
+
+        log(
+            "[PLAYER] Primeiro clique..."
+        )
+
+        video.click(
+            position={
+                "x": x,
+                "y": y
             }
-            """
         )
 
-        if not info:
-            return
+        time.sleep(0.5)
 
-        x = info["x"]
-        y = info["y"]
+        # ----------------------------------------------------
+        # DUPLO CLIQUE REAL
+        # ----------------------------------------------------
 
         log(
-            "[PLAYER] Centro:",
-            x,
-            y
+            "[PLAYER] Duplo clique real..."
         )
 
-        # Dois cliques físicos no elemento.
-        # NÃO chamamos requestFullscreen por JS.
-
-        page.mouse.click(
-            x,
-            y
-        )
-
-        time.sleep(0.15)
-
-        page.mouse.click(
-            x,
-            y
+        video.dblclick(
+            position={
+                "x": x,
+                "y": y
+            },
+            delay=120
         )
 
         log(
             "[PLAYER] Duplo clique enviado."
         )
 
-    except Exception as erro:
+        time.sleep(3)
 
-        log(
-            "[PLAYER] Fullscreen:",
-            erro
-        )
-
-    time.sleep(2)
-
-    try:
+        # ----------------------------------------------------
+        # VERIFICAR
+        # ----------------------------------------------------
 
         estado = page.evaluate(
             """
@@ -731,160 +651,127 @@ def ativar_tela_cheia(page):
         )
 
         log(
-            "[PLAYER] Fullscreen:",
+            "[PLAYER] Estado:",
             estado
         )
 
-    except Exception:
-        pass
-
-
-# ============================================================
-# FFMPEG DIRETO
-# ============================================================
-
-def iniciar_ffmpeg_direto(url):
-
-    global ffmpeg_process
-
-    saida = os.path.join(
-        STREAM_DIR,
-        "live.m3u8"
-    )
-
-    log("")
-    log("=" * 70)
-    log("TENTANDO FFMPEG DIRETO")
-    log("=" * 70)
-    log(url)
-    log("")
-
-    cmd = [
-
-        "ffmpeg",
-        "-y",
-
-        "-hide_banner",
-
-        "-loglevel",
-        "warning",
-
-        "-reconnect",
-        "1",
-
-        "-reconnect_streamed",
-        "1",
-
-        "-reconnect_delay_max",
-        "5",
-
-        "-i",
-        url,
-
-        "-map",
-        "0:v:0",
-
-        "-map",
-        "0:a:0?",
-
-        "-c:v",
-        "libx264",
-
-        "-preset",
-        "veryfast",
-
-        "-tune",
-        "zerolatency",
-
-        "-pix_fmt",
-        "yuv420p",
-
-        "-r",
-        str(FPS),
-
-        "-g",
-        "60",
-
-        "-keyint_min",
-        "60",
-
-        "-sc_threshold",
-        "0",
-
-        "-c:a",
-        "aac",
-
-        "-b:a",
-        "128k",
-
-        "-ar",
-        "44100",
-
-        "-ac",
-        "2",
-
-        "-f",
-        "hls",
-
-        "-hls_time",
-        "2",
-
-        "-hls_list_size",
-        "5",
-
-        "-hls_flags",
-        "delete_segments+append_list+independent_segments",
-
-        "-hls_segment_filename",
-
-        os.path.join(
-            STREAM_DIR,
-            "segment_%05d.ts"
-        ),
-
-        saida
-    ]
-
-    try:
-
-        ffmpeg_process = subprocess.Popen(
-            cmd
-        )
-
-        time.sleep(8)
-
-        if (
-            ffmpeg_process.poll()
-            is not None
-        ):
+        if estado["fullscreen"]:
 
             log(
-                "[MEDIA] FFmpeg direto falhou."
+                "[PLAYER] ✓ FULLSCREEN ATIVADO"
             )
 
-            return False
+            return True
+
+        # ----------------------------------------------------
+        # PROCURAR BOTÃO DE FULLSCREEN
+        # ----------------------------------------------------
 
         log(
-            "[MEDIA] FFmpeg direto funcionando."
+            "[PLAYER] Procurando botão fullscreen..."
         )
 
-        return True
+        seletores = [
+
+            'button[aria-label*="fullscreen" i]',
+
+            'button[title*="fullscreen" i]',
+
+            '[aria-label*="full screen" i]',
+
+            '[title*="full screen" i]',
+
+            '[data-testid*="fullscreen" i]',
+
+            '[class*="fullscreen" i]'
+        ]
+
+        for seletor in seletores:
+
+            try:
+
+                botao = page.locator(
+                    seletor
+                ).first
+
+                if await_count(botao) > 0:
+
+                    if botao.is_visible():
+
+                        log(
+                            "[PLAYER] Botão encontrado:",
+                            seletor
+                        )
+
+                        botao.click(
+                            force=True
+                        )
+
+                        time.sleep(3)
+
+                        estado = page.evaluate(
+                            """
+                            () => ({
+                                fullscreen:
+                                    !!document.fullscreenElement
+                            })
+                            """
+                        )
+
+                        if estado["fullscreen"]:
+
+                            log(
+                                "[PLAYER] ✓ FULLSCREEN PELO BOTÃO"
+                            )
+
+                            return True
+
+            except Exception:
+                continue
+
+        # ----------------------------------------------------
+        # F11
+        # ----------------------------------------------------
+
+        log(
+            "[PLAYER] Tentando F11..."
+        )
+
+        page.keyboard.press(
+            "F11"
+        )
+
+        time.sleep(2)
+
+        log(
+            "[PLAYER] F11 enviado."
+        )
+
+        return False
 
     except Exception as erro:
 
         log(
-            "[MEDIA] Erro FFmpeg direto:",
+            "[PLAYER] Erro fullscreen:",
             erro
         )
 
         return False
 
 
+def await_count(locator):
+
+    try:
+        return locator.count()
+    except Exception:
+        return 0
+
+
 # ============================================================
-# FFMPEG X11
+# FFMPEG
 # ============================================================
 
-def iniciar_ffmpeg_x11():
+def iniciar_ffmpeg():
 
     global ffmpeg_process
 
@@ -895,11 +782,11 @@ def iniciar_ffmpeg_x11():
 
     log("")
     log("=" * 70)
-    log("USANDO CAPTURA X11")
+    log("INICIANDO FFMPEG")
     log("=" * 70)
     log("")
 
-    cmd = [
+    ffmpeg_cmd = [
 
         "ffmpeg",
         "-y",
@@ -909,8 +796,12 @@ def iniciar_ffmpeg_x11():
         "-loglevel",
         "warning",
 
+        # ----------------------------------------------------
+        # X11
+        # ----------------------------------------------------
+
         "-thread_queue_size",
-        "1024",
+        "2048",
 
         "-f",
         "x11grab",
@@ -927,14 +818,22 @@ def iniciar_ffmpeg_x11():
         "-i",
         f"{DISPLAY}.0",
 
+        # ----------------------------------------------------
+        # AUDIO
+        # ----------------------------------------------------
+
         "-thread_queue_size",
-        "1024",
+        "2048",
 
         "-f",
         "pulse",
 
         "-i",
         "webtv.monitor",
+
+        # ----------------------------------------------------
+        # VIDEO
+        # ----------------------------------------------------
 
         "-c:v",
         "libx264",
@@ -960,6 +859,10 @@ def iniciar_ffmpeg_x11():
         "-sc_threshold",
         "0",
 
+        # ----------------------------------------------------
+        # AUDIO
+        # ----------------------------------------------------
+
         "-c:a",
         "aac",
 
@@ -971,6 +874,10 @@ def iniciar_ffmpeg_x11():
 
         "-ac",
         "2",
+
+        # ----------------------------------------------------
+        # HLS
+        # ----------------------------------------------------
 
         "-f",
         "hls",
@@ -994,23 +901,28 @@ def iniciar_ffmpeg_x11():
         saida
     ]
 
+    log(
+        "Comando FFmpeg:"
+    )
+
+    log(
+        " ".join(ffmpeg_cmd)
+    )
+
     ffmpeg_process = subprocess.Popen(
-        cmd
+        ffmpeg_cmd
     )
 
     time.sleep(5)
 
-    if (
-        ffmpeg_process.poll()
-        is not None
-    ):
+    if ffmpeg_process.poll() is not None:
 
         raise RuntimeError(
-            "FFmpeg X11 não iniciou."
+            "FFmpeg encerrou ao iniciar."
         )
 
     log(
-        "FFmpeg X11 funcionando."
+        "FFmpeg funcionando."
     )
 
 
@@ -1019,8 +931,6 @@ def iniciar_ffmpeg_x11():
 # ============================================================
 
 def iniciar_navegador():
-
-    global MEDIA_URLS
 
     log("")
     log("[7] Iniciando Chromium...")
@@ -1072,8 +982,9 @@ def iniciar_navegador():
 
                 "--disable-renderer-backgrounding",
 
-                # Política de fullscreen
-                "--autoplay-policy=no-user-gesture-required"
+                "--start-maximized",
+
+                "--disable-features=CalculateNativeWinOcclusion"
             ]
         )
 
@@ -1085,13 +996,8 @@ def iniciar_navegador():
         )
 
         # ----------------------------------------------------
-        # EVENTOS
+        # LOGS
         # ----------------------------------------------------
-
-        page.on(
-            "request",
-            registrar_midia
-        )
 
         page.on(
             "console",
@@ -1116,7 +1022,10 @@ def iniciar_navegador():
         # ----------------------------------------------------
 
         log(
-            "Abrindo:",
+            "Abrindo página:"
+        )
+
+        log(
             URL_ALVO
         )
 
@@ -1151,74 +1060,66 @@ def iniciar_navegador():
 
         time.sleep(3)
 
+        # ----------------------------------------------------
+        # FULLSCREEN
+        # ----------------------------------------------------
+
         ativar_tela_cheia(
             page
         )
 
         # ----------------------------------------------------
-        # ESPERAR URL DE MÍDIA
+        # DIAGNÓSTICO
         # ----------------------------------------------------
 
-        log("")
-        log(
-            "[MEDIA] Procurando stream direto..."
-        )
+        try:
 
-        for _ in range(20):
+            videos = page.evaluate(
+                """
+                () => {
 
-            if MEDIA_URLS:
-                break
+                    return Array.from(
+                        document.querySelectorAll("video")
+                    ).map(v => ({
 
-            time.sleep(1)
+                        paused:
+                            v.paused,
 
-        # ----------------------------------------------------
-        # TENTAR STREAM DIRETO
-        # ----------------------------------------------------
+                        muted:
+                            v.muted,
 
-        sucesso = False
+                        readyState:
+                            v.readyState,
 
-        if MEDIA_URLS:
+                        width:
+                            v.videoWidth,
 
-            # Preferir HLS.
-            urls = sorted(
-                MEDIA_URLS,
-                key=lambda u:
-                    0
-                    if ".m3u8"
-                    in u.lower()
-                    else 1
-            )
+                        height:
+                            v.videoHeight,
 
-            for url in urls:
+                        currentTime:
+                            v.currentTime,
 
-                if iniciar_ffmpeg_direto(
-                    url
-                ):
-
-                    sucesso = True
-
-                    break
-
-        # ----------------------------------------------------
-        # FALLBACK
-        # ----------------------------------------------------
-
-        if not sucesso:
-
-            log("")
-            log(
-                "[MEDIA] Stream direto não funcionou."
+                        src:
+                            v.currentSrc || ""
+                    }));
+                }
+                """
             )
 
             log(
-                "[MEDIA] Ativando fallback X11..."
+                "[PLAYER] Vídeos:",
+                videos
             )
 
-            iniciar_ffmpeg_x11()
+        except Exception:
+            pass
 
         # ----------------------------------------------------
-        # TRANSMISSÃO
+        # FFMPEG
         # ----------------------------------------------------
+
+        iniciar_ffmpeg()
 
         log("")
         log("=" * 70)
@@ -1227,7 +1128,7 @@ def iniciar_navegador():
         log("")
 
         # ----------------------------------------------------
-        # MONITORAMENTO
+        # MONITOR
         # ----------------------------------------------------
 
         while True:
@@ -1244,12 +1145,13 @@ def iniciar_navegador():
                     "[FFMPEG] Processo encerrou."
                 )
 
-                # Tenta novamente usando X11.
                 log(
-                    "[FFMPEG] Reiniciando captura..."
+                    "[FFMPEG] Reiniciando..."
                 )
 
-                iniciar_ffmpeg_x11()
+                time.sleep(2)
+
+                iniciar_ffmpeg()
 
             time.sleep(5)
 
@@ -1280,5 +1182,4 @@ def main():
 
 
 if __name__ == "__main__":
-
     main()
