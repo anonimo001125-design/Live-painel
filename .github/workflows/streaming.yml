@@ -40,37 +40,43 @@ jobs:
 
           pip install playwright
 
-          # Usa o Chromium do sistema.
-          # Nao baixa outro navegador.
+
+      - name: Instalar dependencias do Chromium
+        run: |
+
           playwright install-deps chromium
 
 
-      - name: Verificar instalacao
+      - name: Verificar sistema
         run: |
 
-          echo "================================"
+          echo "=========================================="
           echo "PYTHON"
           python3 --version
 
-          echo "================================"
+          echo "=========================================="
           echo "CHROMIUM"
           chromium --version
 
-          echo "================================"
+          echo "=========================================="
           echo "FFMPEG"
           ffmpeg -version | head -n 1
 
-          echo "================================"
+          echo "=========================================="
+          echo "PULSEAUDIO"
+          pulseaudio --version
+
+          echo "=========================================="
           echo "PLAYWRIGHT"
           python3 -c "import playwright; print('Playwright OK')"
 
 
-      - name: Verificar app.py
+      - name: Verificar codigo
         run: |
 
           python3 -m py_compile app.py
 
-          echo "app.py OK"
+          echo "Codigo Python OK"
 
 
       - name: Iniciar transmissao
@@ -83,3 +89,17 @@ jobs:
         run: |
 
           python3 app.py
+
+
+      - name: Guardar diagnosticos
+        if: always()
+
+        uses: actions/upload-artifact@v4
+
+        with:
+
+          name: webtv-debug
+
+          path: stream/
+
+          if-no-files-found: ignore
