@@ -16,7 +16,8 @@ jobs:
       - name: Baixar código
         uses: actions/checkout@v4
 
-      - name: Instalar sistema
+
+      - name: Instalar dependências
         run: |
 
           sudo apt-get update
@@ -28,16 +29,34 @@ jobs:
             xvfb \
             xdotool \
             chromium \
-            openssh-client
+            openssh-client \
+            python3-pip \
+            python3-venv
 
-      - name: Instalar Pyppeteer
+
+      - name: Preparar Python
         run: |
 
-          python3 -m pip install --upgrade pip
+          python3 -m venv .venv
 
-          pip install pyppeteer
+          . .venv/bin/activate
 
-      - name: Verificar sistema
+          python -m pip install --upgrade pip
+
+          pip install playwright
+
+
+      - name: Instalar navegador
+        run: |
+
+          . .venv/bin/activate
+
+          playwright install chromium
+
+          playwright install-deps chromium
+
+
+      - name: Verificar ambiente
         run: |
 
           echo "=========================================="
@@ -50,13 +69,15 @@ jobs:
           echo "CHROMIUM"
           echo "=========================================="
 
-          chromium --version
+          chromium --version || true
 
           echo "=========================================="
-          echo "PULSEAUDIO"
+          echo "PLAYWRIGHT"
           echo "=========================================="
 
-          pulseaudio --version
+          . .venv/bin/activate
+
+          playwright --version
 
           echo "=========================================="
           echo "PYTHON"
@@ -64,11 +85,10 @@ jobs:
 
           python3 --version
 
+
       - name: Iniciar transmissão
 
         env:
-
-          PYPPETEER_NO_CHROMIUM_DOWNLOAD: "1"
 
           DISPLAY: ":99"
 
@@ -78,7 +98,10 @@ jobs:
 
         run: |
 
+          . .venv/bin/activate
+
           python3 app.py
+
 
       - name: Salvar diagnósticos
 
