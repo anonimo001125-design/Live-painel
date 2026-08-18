@@ -91,6 +91,7 @@ def preparar_stream():
 
     os.makedirs(STREAM_DIR, exist_ok=True)
 
+    log("")
     log("[1] Limpando stream antigo...")
 
     for nome in os.listdir(STREAM_DIR):
@@ -98,9 +99,12 @@ def preparar_stream():
         caminho = os.path.join(STREAM_DIR, nome)
 
         try:
+
             if os.path.isfile(caminho):
                 os.remove(caminho)
+
         except Exception as erro:
+
             log("[AVISO]", erro)
 
 
@@ -135,7 +139,10 @@ def iniciar_xvfb():
     time.sleep(3)
 
     if xvfb.poll() is not None:
-        raise RuntimeError("Xvfb não conseguiu iniciar.")
+
+        raise RuntimeError(
+            "Xvfb não conseguiu iniciar."
+        )
 
     log("Tela virtual:", DISPLAY)
     log("Resolução:", f"{WIDTH}x{HEIGHT}")
@@ -174,8 +181,12 @@ def iniciar_audio():
     )
 
     if teste.returncode != 0:
+
         log(teste.stderr)
-        raise RuntimeError("PulseAudio não iniciou.")
+
+        raise RuntimeError(
+            "PulseAudio não iniciou."
+        )
 
     sinks = subprocess.run(
         [
@@ -205,8 +216,10 @@ def iniciar_audio():
         )
 
         if resultado.returncode != 0:
+
             log(resultado.stdout)
             log(resultado.stderr)
+
             raise RuntimeError(
                 "Não foi possível criar webtv."
             )
@@ -240,6 +253,7 @@ def iniciar_audio():
     log(fontes.stdout)
 
     if "webtv.monitor" not in fontes.stdout:
+
         raise RuntimeError(
             "webtv.monitor não foi encontrado."
         )
@@ -274,6 +288,7 @@ def iniciar_servidor():
     time.sleep(2)
 
     if servidor.poll() is not None:
+
         raise RuntimeError(
             "Servidor HTTP encerrou."
         )
@@ -517,6 +532,7 @@ def iniciar_ffmpeg():
     time.sleep(5)
 
     if ffmpeg_process.poll() is not None:
+
         raise RuntimeError(
             "FFmpeg encerrou."
         )
@@ -712,25 +728,26 @@ def tentar_reproduzir(page):
 
 
 # ============================================================
-# CLIQUE NO VÍDEO = TELA CHEIA
+# TELA CHEIA
 # ============================================================
 
 def ativar_tela_cheia(page):
 
     log("")
-    log(
-        "[PLAYER] Aguardando reprodução..."
-    )
+    log("[PLAYER] Preparando tela cheia...")
 
-    time.sleep(5)
+    time.sleep(3)
+
+    # --------------------------------------------------------
+    # PRIMEIRA TENTATIVA:
+    # CLICAR NO PRÓPRIO VÍDEO
+    # --------------------------------------------------------
 
     try:
 
-        # Verifica se existe vídeo e aguarda
-        # o player estar visível.
+        video = page.locator("video").first
 
-        page.wait_for_selector(
-            "video",
+        video.wait_for(
             state="visible",
             timeout=30000
         )
@@ -739,42 +756,132 @@ def ativar_tela_cheia(page):
             "[PLAYER] Vídeo encontrado."
         )
 
+        box = video.bounding_box()
+
+        if box:
+
+            log(
+                "[PLAYER] Área do vídeo:",
+                f"{box['width']:.0f}x{box['height']:.0f}"
+            )
+
+            video.click(
+                position={
+                    "x": box["width"] / 2,
+                    "y": box["height"] / 2
+                },
+                timeout=10000
+            )
+
+            log(
+                "[PLAYER] Clique no vídeo realizado."
+            )
+
+        else:
+
+            log(
+                "[PLAYER] Não foi possível obter "
+                "a área do vídeo."
+            )
+
     except Exception as erro:
 
         log(
-            "[PLAYER] Vídeo não encontrado diretamente:",
+            "[PLAYER] Clique no vídeo falhou:",
+            erro
+        )
+
+    time.sleep(3)
+
+    # --------------------------------------------------------
+    # SEGUNDA TENTATIVA:
+    # JAVASCRIPT FULLSCREEN
+    # --------------------------------------------------------
+
+    try:
+
+        resultado = page.evaluate(
+            """
+            async () => {
+
+                const video =
+                    document.querySelector("video");
+
+                if (!video) {
+                    return {
+                        sucesso: false,
+                        motivo: "video não encontrado"
+                    };
+                }
+
+                try {
+
+                    if (
+                        document.fullscreenElement !== video
+                    ) {
+
+                        if (
+                            video.requestFullscreen
+                        ) {
+
+                            await video.requestFullscreen();
+
+                            return {
+                                sucesso: true,
+                                metodo: "video.requestFullscreen"
+                            };
+                        }
+
+                        if (
+                            video.webkitRequestFullscreen
+                        ) {
+
+                            video.webkitRequestFullscreen();
+
+                            return {
+                                sucesso: true,
+                                metodo: "webkitRequestFullscreen"
+                            };
+                        }
+                    }
+
+                    return {
+                        sucesso:
+                            !!document.fullscreenElement,
+
+                        metodo:
+                            "fullscreen existente"
+                    };
+
+                } catch (erro) {
+
+                    return {
+                        sucesso: false,
+                        erro: String(erro)
+                    };
+                }
+            }
+            """
+        )
+
+        log(
+            "[PLAYER] JavaScript fullscreen:",
+            resultado
+        )
+
+    except Exception as erro:
+
+        log(
+            "[PLAYER] Erro no fullscreen:",
             erro
         )
 
     time.sleep(2)
 
-    try:
-
-        log(
-            "[PLAYER] Executando UM clique no centro da reprodução..."
-        )
-
-        # O site foi feito para entrar em fullscreen
-        # quando qualquer ponto da reprodução recebe um toque.
-
-        page.mouse.click(
-            WIDTH // 2,
-            HEIGHT // 2
-        )
-
-        log(
-            "[PLAYER] Clique realizado."
-        )
-
-    except Exception as erro:
-
-        log(
-            "[PLAYER] Erro no clique:",
-            erro
-        )
-
-    # Dá tempo para o próprio site ativar o fullscreen.
-    time.sleep(4)
+    # --------------------------------------------------------
+    # TERCEIRA TENTATIVA:
+    # F11 NO X11
+    # --------------------------------------------------------
 
     try:
 
@@ -784,42 +891,103 @@ def ativar_tela_cheia(page):
                 fullscreen:
                     !!document.fullscreenElement,
 
-                video:
-                    (() => {
+                largura:
+                    window.innerWidth,
 
-                        const v =
-                            document.querySelector("video");
-
-                        if (!v) return null;
-
-                        return {
-
-                            paused:
-                                v.paused,
-
-                            width:
-                                v.videoWidth,
-
-                            height:
-                                v.videoHeight,
-
-                            currentTime:
-                                v.currentTime
-                        };
-                    })()
+                altura:
+                    window.innerHeight
             })
             """
         )
 
         log(
-            "[PLAYER] Estado após clique:",
+            "[PLAYER] Estado antes do F11:",
+            estado
+        )
+
+        if not estado["fullscreen"]:
+
+            log(
+                "[PLAYER] Fullscreen JS não ativado."
+            )
+
+            log(
+                "[PLAYER] Tentando F11 via X11..."
+            )
+
+            subprocess.run(
+                [
+                    "xdotool",
+                    "key",
+                    "F11"
+                ],
+                check=False
+            )
+
+            time.sleep(3)
+
+    except Exception as erro:
+
+        log(
+            "[PLAYER] Erro no F11:",
+            erro
+        )
+
+    # --------------------------------------------------------
+    # DIAGNÓSTICO FINAL
+    # --------------------------------------------------------
+
+    try:
+
+        estado = page.evaluate(
+            """
+            () => {
+
+                const video =
+                    document.querySelector("video");
+
+                return {
+
+                    fullscreen:
+                        !!document.fullscreenElement,
+
+                    largura:
+                        window.innerWidth,
+
+                    altura:
+                        window.innerHeight,
+
+                    video:
+                        video
+                            ? {
+                                width:
+                                    video.videoWidth,
+
+                                height:
+                                    video.videoHeight,
+
+                                paused:
+                                    video.paused,
+
+                                currentTime:
+                                    video.currentTime
+                            }
+                            : null
+                };
+            }
+            """
+        )
+
+        log(
+            "[PLAYER] Estado final:",
             estado
         )
 
     except Exception as erro:
 
         log(
-            "[PLAYER] Não foi possível verificar fullscreen:",
+            "[PLAYER] Não foi possível "
+            "verificar fullscreen:",
             erro
         )
 
@@ -858,11 +1026,23 @@ def iniciar_navegador():
 
                 "--disable-notifications",
 
+                # ==================================================
+                # TELA CHEIA DO CHROMIUM
+                # ==================================================
+
+                "--kiosk",
+
+                "--start-fullscreen",
+
                 "--window-size=1280,720",
 
                 "--window-position=0,0",
 
                 "--force-device-scale-factor=1",
+
+                # ==================================================
+                # X11
+                # ==================================================
 
                 "--ozone-platform=x11",
 
@@ -874,11 +1054,12 @@ def iniciar_navegador():
             ]
         )
 
+        # IMPORTANTE:
+        # viewport=None faz o Playwright usar a área real
+        # da janela em vez de criar um viewport separado.
+
         page = browser.new_page(
-            viewport={
-                "width": WIDTH,
-                "height": HEIGHT
-            }
+            viewport=None
         )
 
         # ----------------------------------------------------
@@ -961,9 +1142,7 @@ def iniciar_navegador():
         )
 
         # ----------------------------------------------------
-        # UM CLIQUE NO VÍDEO
-        #
-        # O próprio site entra em tela cheia.
+        # TELA CHEIA
         # ----------------------------------------------------
 
         ativar_tela_cheia(
@@ -971,112 +1150,68 @@ def iniciar_navegador():
         )
 
         # ----------------------------------------------------
-        # CONFIRMAR REPRODUÇÃO
+        # INICIAR FFmpeg DEPOIS DO PLAYER
         # ----------------------------------------------------
 
-        tentar_reproduzir(
-            page
-        )
+        # O FFmpeg já deve ter sido iniciado pelo main()
+        # antes do navegador. Portanto não iniciamos aqui.
 
         log("")
         log("=" * 60)
-        log("TRANSMISSÃO INICIADA")
+        log("CHROMIUM RODANDO")
         log("=" * 60)
         log("")
 
-        # ----------------------------------------------------
-        # MONITORAMENTO
-        #
-        # NÃO CLICA MAIS NO VÍDEO.
-        # ----------------------------------------------------
+        # Mantém o navegador aberto durante a transmissão.
 
         while True:
-
-            time.sleep(10)
 
             try:
 
                 if page.is_closed():
 
                     raise RuntimeError(
-                        "Página fechada."
+                        "Página do Chromium foi fechada."
                     )
 
-                videos = diagnosticar_videos(
-                    page
-                )
+                time.sleep(10)
 
-                algum_rodando = False
-
-                for video in videos:
-
-                    if (
-                        not video.get(
-                            "paused",
-                            True
-                        )
-                        and
-                        video.get(
-                            "width",
-                            0
-                        ) > 0
-                    ):
-
-                        algum_rodando = True
-                        break
-
-                if not algum_rodando:
-
-                    log(
-                        "[PLAYER] Vídeo parou. Tentando reproduzir novamente..."
-                    )
-
-                    tentar_reproduzir(
-                        page
-                    )
-
-            except Exception as erro:
-
-                log(
-                    "[MONITOR]",
-                    erro
-                )
+            except KeyboardInterrupt:
 
                 break
-
-
-# ============================================================
-# INICIAR
-# ============================================================
-
-def iniciar():
-
-    preparar_stream()
-
-    iniciar_xvfb()
-
-    iniciar_audio()
-
-    iniciar_servidor()
-
-    iniciar_ffmpeg()
-
-    time.sleep(5)
-
-    iniciar_tunel()
-
-    iniciar_navegador()
 
 
 # ============================================================
 # MAIN
 # ============================================================
 
-if __name__ == "__main__":
+def main():
+
+    log("")
+    log("=" * 60)
+    log("          WEBTV STREAM")
+    log("=" * 60)
+    log("")
 
     try:
 
-        iniciar()
+        preparar_stream()
+
+        iniciar_xvfb()
+
+        iniciar_audio()
+
+        iniciar_servidor()
+
+        iniciar_ffmpeg()
+
+        iniciar_tunel()
+
+        iniciar_navegador()
+
+    except KeyboardInterrupt:
+
+        encerrar()
 
     except Exception as erro:
 
@@ -1084,7 +1219,18 @@ if __name__ == "__main__":
         log("=" * 60)
         log("ERRO FATAL")
         log("=" * 60)
-        log(str(erro))
-        log("=" * 60)
+
+        log(
+            repr(erro)
+        )
 
         encerrar()
+
+
+# ============================================================
+# EXECUÇÃO
+# ============================================================
+
+if __name__ == "__main__":
+
+    main()
