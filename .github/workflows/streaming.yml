@@ -86,8 +86,6 @@ jobs:
 
           PULSE_SINK: "webtv"
 
-          PULSE_RUNTIME_PATH: "/tmp/pulse"
-
           PYTHONUNBUFFERED: "1"
 
         run: |
