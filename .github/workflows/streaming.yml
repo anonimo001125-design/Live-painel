@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
 
 jobs:
+
   run-stream:
 
     runs-on: ubuntu-24.04
@@ -39,20 +40,12 @@ jobs:
       - name: Verificar sistema
         run: |
 
-          echo "FFMPEG:"
           ffmpeg -version | head -n 1
-
-          echo "CHROMIUM:"
           chromium --version
-
-          echo "PULSEAUDIO:"
           pulseaudio --version
-
-          echo "PYTHON:"
           python3 --version
 
       - name: Iniciar transmissão
-
         env:
 
           PYPPETEER_NO_CHROMIUM_DOWNLOAD: "1"
@@ -66,7 +59,6 @@ jobs:
           python3 app.py
 
       - name: Salvar diagnósticos
-
         if: always()
 
         uses: actions/upload-artifact@v4
