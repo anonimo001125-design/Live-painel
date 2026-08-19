@@ -13,9 +13,17 @@ jobs:
 
     steps:
 
+      # ======================================================
+      # CÓDIGO
+      # ======================================================
+
       - name: Baixar código
         uses: actions/checkout@v4
 
+
+      # ======================================================
+      # SISTEMA
+      # ======================================================
 
       - name: Instalar sistema
         shell: bash
@@ -24,7 +32,7 @@ jobs:
           set -e
 
           echo "=========================================="
-          echo "INSTALANDO SISTEMA"
+          echo "ATUALIZANDO SISTEMA"
           echo "=========================================="
 
           sudo apt-get update
@@ -40,6 +48,10 @@ jobs:
             ca-certificates
 
 
+      # ======================================================
+      # CLOUDFLARED
+      # ======================================================
+
       - name: Instalar Cloudflare Tunnel
         shell: bash
         run: |
@@ -54,39 +66,64 @@ jobs:
             --fail \
             --retry 5 \
             --retry-delay 3 \
-            -o /tmp/cloudflared \
-            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+            -o /tmp/cloudflared.deb \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
 
-          sudo install \
-            -m 0755 \
-            /tmp/cloudflared \
-            /usr/local/bin/cloudflared
+          sudo dpkg -i /tmp/cloudflared.deb
 
           cloudflared --version
 
+
+      # ======================================================
+      # PYTHON
+      # ======================================================
+
+      - name: Verificar Python
+        shell: bash
+        run: |
+
+          set -e
+
+          python3 --version
+          pip3 --version || true
+
+
+      # ======================================================
+      # VERIFICAÇÃO
+      # ======================================================
 
       - name: Verificar sistema
         shell: bash
         run: |
 
+          set -e
+
           echo "=========================================="
           echo "VERIFICAÇÃO"
           echo "=========================================="
 
+          echo "FFmpeg:"
           ffmpeg -version | head -n 1
 
+          echo "Chromium:"
           chromium --version
 
+          echo "PulseAudio:"
           pulseaudio --version
 
+          echo "Xvfb:"
+          Xvfb -version 2>&1 | head -n 1 || true
+
+          echo "Cloudflared:"
           cloudflared --version
 
+          echo "Python:"
           python3 --version
 
-          echo "=========================================="
-          echo "SISTEMA OK"
-          echo "=========================================="
 
+      # ======================================================
+      # TRANSMISSÃO
+      # ======================================================
 
       - name: Iniciar transmissão
         shell: bash
@@ -94,11 +131,13 @@ jobs:
 
           DISPLAY: ":99"
 
-          PULSE_SINK: "webtv"
-
           PYTHONUNBUFFERED: "1"
 
+          PULSE_SINK: "webtv"
+
         run: |
+
+          set +e
 
           echo "=========================================="
           echo "INICIANDO WEBTV"
@@ -106,16 +145,31 @@ jobs:
 
           python3 -u app.py
 
+          CODE=$?
+
+          echo ""
+          echo "=========================================="
+          echo "WEBTV FINALIZADA"
+          echo "Código: $CODE"
+          echo "=========================================="
+
+          exit $CODE
+
+
+      # ======================================================
+      # DIAGNÓSTICOS
+      # ======================================================
 
       - name: Salvar diagnósticos
         if: always()
-
         uses: actions/upload-artifact@v4
 
         with:
 
           name: webtv-debug
 
-          path: stream/
+          path: |
+            stream/
+            /tmp/webtv*.log
 
           if-no-files-found: ignore
