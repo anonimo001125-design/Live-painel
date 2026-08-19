@@ -1,3 +1,5 @@
+streaming.yml
+
 name: Stream
 
 on:
@@ -13,17 +15,9 @@ jobs:
 
     steps:
 
-      # ======================================================
-      # CÓDIGO
-      # ======================================================
-
       - name: Baixar código
         uses: actions/checkout@v4
 
-
-      # ======================================================
-      # SISTEMA
-      # ======================================================
 
       - name: Instalar sistema
         shell: bash
@@ -32,7 +26,7 @@ jobs:
           set -e
 
           echo "=========================================="
-          echo "ATUALIZANDO SISTEMA"
+          echo "INSTALANDO DEPENDÊNCIAS"
           echo "=========================================="
 
           sudo apt-get update
@@ -45,85 +39,66 @@ jobs:
             xdotool \
             chromium \
             curl \
-            ca-certificates
-
-
-      # ======================================================
-      # CLOUDFLARED
-      # ======================================================
-
-      - name: Instalar Cloudflare Tunnel
-        shell: bash
-        run: |
-
-          set -e
+            ca-certificates \
+            gnupg
 
           echo "=========================================="
           echo "INSTALANDO CLOUDFLARED"
           echo "=========================================="
 
-          curl -L \
-            --fail \
-            --retry 5 \
-            --retry-delay 3 \
-            -o /tmp/cloudflared.deb \
-            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo mkdir -p \
+            --mode=0755 \
+            /usr/share/keyrings
 
-          sudo dpkg -i /tmp/cloudflared.deb
+          curl -fsSL \
+            https://pkg.cloudflare.com/cloudflare-main.gpg \
+            | sudo tee \
+            /usr/share/keyrings/cloudflare-main.gpg \
+            > /dev/null
 
-          cloudflared --version
+          echo \
+            "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main" \
+            | sudo tee \
+            /etc/apt/sources.list.d/cloudflared.list \
+            > /dev/null
 
+          sudo apt-get update
 
-      # ======================================================
-      # PYTHON
-      # ======================================================
-
-      - name: Verificar Python
-        shell: bash
-        run: |
-
-          set -e
-
-          python3 --version
-          pip3 --version || true
-
-
-      # ======================================================
-      # VERIFICAÇÃO
-      # ======================================================
-
-      - name: Verificar sistema
-        shell: bash
-        run: |
-
-          set -e
+          sudo apt-get install -y cloudflared
 
           echo "=========================================="
-          echo "VERIFICAÇÃO"
+          echo "INSTALAÇÃO CONCLUÍDA"
           echo "=========================================="
 
-          echo "FFmpeg:"
           ffmpeg -version | head -n 1
 
-          echo "Chromium:"
           chromium --version
 
-          echo "PulseAudio:"
           pulseaudio --version
 
-          echo "Xvfb:"
-          Xvfb -version 2>&1 | head -n 1 || true
-
-          echo "Cloudflared:"
           cloudflared --version
 
-          echo "Python:"
           python3 --version
 
 
-      # ======================================================
-      # TRANSMISSÃO
-      # ======================================================
+      - name: Verificar arquivos
+        shell: bash
+        run: |
+
+          set -e
+
+          echo "=========================================="
+          echo "VERIFICANDO ARQUIVOS"
+          echo "=========================================="
+
+          test -f app.py
+
+          echo "app.py encontrado."
+
+          echo "Arquivos do projeto:"
+
+          ls -la
+
 
       - name: Iniciar transmissão
         shell: bash
@@ -131,9 +106,9 @@ jobs:
 
           DISPLAY: ":99"
 
-          PYTHONUNBUFFERED: "1"
-
           PULSE_SINK: "webtv"
+
+          PYTHONUNBUFFERED: "1"
 
         run: |
 
@@ -147,7 +122,6 @@ jobs:
 
           CODE=$?
 
-          echo ""
           echo "=========================================="
           echo "WEBTV FINALIZADA"
           echo "Código: $CODE"
@@ -156,20 +130,15 @@ jobs:
           exit $CODE
 
 
-      # ======================================================
-      # DIAGNÓSTICOS
-      # ======================================================
-
       - name: Salvar diagnósticos
         if: always()
+
         uses: actions/upload-artifact@v4
 
         with:
 
           name: webtv-debug
 
-          path: |
-            stream/
-            /tmp/webtv*.log
+          path: stream/
 
           if-no-files-found: ignore
