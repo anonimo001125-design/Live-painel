@@ -1,4 +1,4 @@
-name: Stream WebTV
+name: Stream
 
 on:
   workflow_dispatch:
@@ -9,24 +9,13 @@ jobs:
 
     runs-on: ubuntu-24.04
 
-    # GitHub Actions não é um servidor 24h.
-    # Este valor evita que o processo seja encerrado
-    # antes do limite permitido pelo runner.
     timeout-minutes: 350
 
     steps:
 
-      # ======================================================
-      # 1. BAIXAR CÓDIGO
-      # ======================================================
-
       - name: Baixar código
         uses: actions/checkout@v4
 
-
-      # ======================================================
-      # 2. INSTALAR SISTEMA
-      # ======================================================
 
       - name: Instalar sistema
         shell: bash
@@ -35,7 +24,7 @@ jobs:
           set -e
 
           echo "=========================================="
-          echo "INSTALANDO DEPENDÊNCIAS"
+          echo "INSTALANDO SISTEMA"
           echo "=========================================="
 
           sudo apt-get update
@@ -48,19 +37,10 @@ jobs:
             xdotool \
             chromium \
             curl \
-            wget \
-            ca-certificates \
-            unzip
-
-          echo ""
-          echo "Sistema instalado."
+            ca-certificates
 
 
-      # ======================================================
-      # 3. INSTALAR CLOUDFLARED
-      # ======================================================
-
-      - name: Instalar Cloudflared
+      - name: Instalar Cloudflare Tunnel
         shell: bash
         run: |
 
@@ -70,102 +50,43 @@ jobs:
           echo "INSTALANDO CLOUDFLARED"
           echo "=========================================="
 
-          ARCH="$(dpkg --print-architecture)"
+          curl -L \
+            --fail \
+            --retry 5 \
+            --retry-delay 3 \
+            -o /tmp/cloudflared \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
 
-          echo "Arquitetura: $ARCH"
+          sudo install \
+            -m 0755 \
+            /tmp/cloudflared \
+            /usr/local/bin/cloudflared
 
-          case "$ARCH" in
-
-            amd64)
-              URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
-              ;;
-
-            arm64)
-              URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
-              ;;
-
-            *)
-              echo "Arquitetura não suportada: $ARCH"
-              exit 1
-              ;;
-
-          esac
-
-          sudo wget \
-            -q \
-            --show-progress \
-            "$URL" \
-            -O /usr/local/bin/cloudflared
-
-          sudo chmod +x /usr/local/bin/cloudflared
-
-          echo ""
-          echo "Cloudflared instalado:"
           cloudflared --version
 
-
-      # ======================================================
-      # 4. PYTHON
-      # ======================================================
-
-      - name: Preparar Python
-        shell: bash
-        run: |
-
-          set -e
-
-          python3 -m pip install --upgrade pip
-
-          pip install --no-cache-dir pyppeteer
-
-
-      # ======================================================
-      # 5. VERIFICAR SISTEMA
-      # ======================================================
 
       - name: Verificar sistema
         shell: bash
         run: |
 
-          set -e
-
           echo "=========================================="
           echo "VERIFICAÇÃO"
           echo "=========================================="
 
-          echo ""
-          echo "FFmpeg:"
           ffmpeg -version | head -n 1
 
-          echo ""
-          echo "Chromium:"
           chromium --version
 
-          echo ""
-          echo "PulseAudio:"
           pulseaudio --version
 
-          echo ""
-          echo "Xvfb:"
-          Xvfb -version 2>&1 | head -n 1 || true
-
-          echo ""
-          echo "Cloudflared:"
           cloudflared --version
 
-          echo ""
-          echo "Python:"
           python3 --version
 
-          echo ""
           echo "=========================================="
-          echo "TODOS OS PROGRAMAS ESTÃO DISPONÍVEIS"
+          echo "SISTEMA OK"
           echo "=========================================="
 
-
-      # ======================================================
-      # 6. INICIAR WEBTV
-      # ======================================================
 
       - name: Iniciar transmissão
         shell: bash
@@ -175,32 +96,16 @@ jobs:
 
           PULSE_SINK: "webtv"
 
-          PYPPETEER_NO_CHROMIUM_DOWNLOAD: "1"
+          PYTHONUNBUFFERED: "1"
 
         run: |
-
-          set +e
 
           echo "=========================================="
           echo "INICIANDO WEBTV"
           echo "=========================================="
 
-          python3 app.py
+          python3 -u app.py
 
-          EXIT_CODE=$?
-
-          echo ""
-          echo "=========================================="
-          echo "WEBTV FINALIZADA"
-          echo "Código: $EXIT_CODE"
-          echo "=========================================="
-
-          exit $EXIT_CODE
-
-
-      # ======================================================
-      # 7. DIAGNÓSTICOS
-      # ======================================================
 
       - name: Salvar diagnósticos
         if: always()
@@ -211,10 +116,6 @@ jobs:
 
           name: webtv-debug
 
-          path: |
-
-            stream/
-
-            /tmp/*.log
+          path: stream/
 
           if-no-files-found: ignore
