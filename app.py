@@ -36,7 +36,7 @@ STREAM_DIR = Path("stream")
 NGROK_BIN = Path.home() / ".local" / "bin" / "ngrok"
 
 NGROK_AUTHTOKEN = os.environ.get(
-    "NGROK_AUTHTOKEN",
+    "3Hp2YbxQ2bolHAikPRlZgIA4Rtr_71CZKugfEWPTKPS9LXXJk",
     ""
 ).strip()
 
