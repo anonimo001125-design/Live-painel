@@ -1,14 +1,7 @@
-name: Stream
+name: Stream WebTV
 
 on:
   workflow_dispatch:
-
-permissions:
-  contents: read
-
-concurrency:
-  group: webtv-stream
-  cancel-in-progress: true
 
 jobs:
 
@@ -16,32 +9,38 @@ jobs:
 
     runs-on: ubuntu-24.04
 
-    # O GitHub encerra o runner depois desse período.
-    # O script abaixo também possui mecanismos de recuperação.
+    # GitHub Actions não é um servidor 24h.
+    # Este valor evita que o processo seja encerrado
+    # antes do limite permitido pelo runner.
     timeout-minutes: 350
 
     steps:
 
-      # ==========================================================
+      # ======================================================
       # 1. BAIXAR CÓDIGO
-      # ==========================================================
+      # ======================================================
 
       - name: Baixar código
         uses: actions/checkout@v4
 
 
-      # ==========================================================
-      # 2. INSTALAR DEPENDÊNCIAS
-      # ==========================================================
+      # ======================================================
+      # 2. INSTALAR SISTEMA
+      # ======================================================
 
       - name: Instalar sistema
+        shell: bash
         run: |
 
           set -e
 
+          echo "=========================================="
+          echo "INSTALANDO DEPENDÊNCIAS"
+          echo "=========================================="
+
           sudo apt-get update
 
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          sudo apt-get install -y \
             ffmpeg \
             pulseaudio \
             pulseaudio-utils \
@@ -49,96 +48,127 @@ jobs:
             xdotool \
             chromium \
             curl \
+            wget \
             ca-certificates \
-            procps \
-            net-tools
+            unzip
+
+          echo ""
+          echo "Sistema instalado."
+
+
+      # ======================================================
+      # 3. INSTALAR CLOUDFLARED
+      # ======================================================
+
+      - name: Instalar Cloudflared
+        shell: bash
+        run: |
+
+          set -e
 
           echo "=========================================="
-          echo "VERSÕES"
+          echo "INSTALANDO CLOUDFLARED"
           echo "=========================================="
 
-          ffmpeg -version | head -n 1
-          chromium --version
-          pulseaudio --version
-          Xvfb -version 2>&1 | head -n 1
-          python3 --version
+          ARCH="$(dpkg --print-architecture)"
+
+          echo "Arquitetura: $ARCH"
+
+          case "$ARCH" in
+
+            amd64)
+              URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+              ;;
+
+            arm64)
+              URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
+              ;;
+
+            *)
+              echo "Arquitetura não suportada: $ARCH"
+              exit 1
+              ;;
+
+          esac
+
+          sudo wget \
+            -q \
+            --show-progress \
+            "$URL" \
+            -O /usr/local/bin/cloudflared
+
+          sudo chmod +x /usr/local/bin/cloudflared
+
+          echo ""
+          echo "Cloudflared instalado:"
+          cloudflared --version
 
 
-      # ==========================================================
-      # 3. PYTHON
-      # ==========================================================
+      # ======================================================
+      # 4. PYTHON
+      # ======================================================
 
       - name: Preparar Python
+        shell: bash
         run: |
 
           set -e
 
           python3 -m pip install --upgrade pip
 
-          if [ -f requirements.txt ]; then
-            pip install --no-cache-dir -r requirements.txt
-          fi
-
-          # Pyppeteer somente se o projeto realmente utilizar.
           pip install --no-cache-dir pyppeteer
 
 
-      # ==========================================================
-      # 4. PREPARAR AMBIENTE
-      # ==========================================================
+      # ======================================================
+      # 5. VERIFICAR SISTEMA
+      # ======================================================
 
-      - name: Preparar ambiente WebTV
-        run: |
-
-          set -e
-
-          mkdir -p stream
-
-          rm -rf /tmp/webtv-* || true
-
-          # Evita conflito com uma execução anterior.
-          pkill -9 Xvfb || true
-          pkill -9 pulseaudio || true
-          pkill -9 chromium || true
-          pkill -9 chrome || true
-          pkill -9 ffmpeg || true
-
-          sleep 2
-
-          echo "Ambiente preparado."
-
-
-      # ==========================================================
-      # 5. VERIFICAÇÃO
-      # ==========================================================
-
-      - name: Verificar arquivos
+      - name: Verificar sistema
+        shell: bash
         run: |
 
           set -e
 
           echo "=========================================="
-          echo "ARQUIVOS DO PROJETO"
+          echo "VERIFICAÇÃO"
           echo "=========================================="
 
-          ls -lah
+          echo ""
+          echo "FFmpeg:"
+          ffmpeg -version | head -n 1
 
+          echo ""
+          echo "Chromium:"
+          chromium --version
+
+          echo ""
+          echo "PulseAudio:"
+          pulseaudio --version
+
+          echo ""
+          echo "Xvfb:"
+          Xvfb -version 2>&1 | head -n 1 || true
+
+          echo ""
+          echo "Cloudflared:"
+          cloudflared --version
+
+          echo ""
+          echo "Python:"
+          python3 --version
+
+          echo ""
           echo "=========================================="
-          echo "APP.PY"
+          echo "TODOS OS PROGRAMAS ESTÃO DISPONÍVEIS"
           echo "=========================================="
 
-          test -f app.py
 
-          python3 -m py_compile app.py
-
-          echo "app.py OK."
-
-
-      # ==========================================================
+      # ======================================================
       # 6. INICIAR WEBTV
-      # ==========================================================
+      # ======================================================
 
       - name: Iniciar transmissão
+        shell: bash
         env:
 
           DISPLAY: ":99"
@@ -146,8 +176,6 @@ jobs:
           PULSE_SINK: "webtv"
 
           PYPPETEER_NO_CHROMIUM_DOWNLOAD: "1"
-
-          PYTHONUNBUFFERED: "1"
 
         run: |
 
@@ -157,22 +185,11 @@ jobs:
           echo "INICIANDO WEBTV"
           echo "=========================================="
 
-          # O próprio app.py controla:
-          #
-          # Xvfb
-          # PulseAudio
-          # Chromium
-          # FFmpeg
-          # HLS
-          # servidor HTTP
-          #
-          # O GitHub Actions continuará exibindo
-          # os logs em tempo real.
-
-          python3 -u app.py
+          python3 app.py
 
           EXIT_CODE=$?
 
+          echo ""
           echo "=========================================="
           echo "WEBTV FINALIZADA"
           echo "Código: $EXIT_CODE"
@@ -181,40 +198,9 @@ jobs:
           exit $EXIT_CODE
 
 
-      # ==========================================================
-      # 7. DIAGNÓSTICO
-      # ==========================================================
-
-      - name: Diagnóstico final
-        if: always()
-        run: |
-
-          echo "=========================================="
-          echo "DIAGNÓSTICO"
-          echo "=========================================="
-
-          echo ""
-          echo "PROCESSOS:"
-          ps aux | grep -E \
-            "Xvfb|pulseaudio|chromium|ffmpeg|python" \
-            | grep -v grep || true
-
-          echo ""
-          echo "PORTAS:"
-          ss -lntp || true
-
-          echo ""
-          echo "STREAM:"
-          ls -lah stream/ || true
-
-          echo ""
-          echo "PLAYLIST:"
-          cat stream/live.m3u8 2>/dev/null || true
-
-
-      # ==========================================================
-      # 8. SALVAR STREAM/LOGS
-      # ==========================================================
+      # ======================================================
+      # 7. DIAGNÓSTICOS
+      # ======================================================
 
       - name: Salvar diagnósticos
         if: always()
@@ -226,7 +212,9 @@ jobs:
           name: webtv-debug
 
           path: |
+
             stream/
-            *.log
+
+            /tmp/*.log
 
           if-no-files-found: ignore
