@@ -8,9 +8,6 @@ import signal
 import shutil
 import threading
 import subprocess
-import platform
-import tarfile
-import urllib.request
 from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
@@ -35,8 +32,13 @@ PAGE_URL = (
 
 STREAM_DIR = Path("stream")
 
-NGROK_DIR = Path.home() / ".ngrok"
-NGROK_BIN = NGROK_DIR / "ngrok"
+# O token NÃO fica gravado no código.
+NGROK_AUTHTOKEN = os.environ.get(
+    "3Hp2YbxQ2bolHAikPRlZgIA4Rtr_71CZKugfEWPTKPS9LXXJk",
+    ""
+).strip()
+
+NGROK_BIN = shutil.which("ngrok")
 
 stop_event = threading.Event()
 
@@ -47,7 +49,7 @@ ffmpeg = None
 ngrok_process = None
 http_server = None
 
-public_url = None
+tunnel_url = None
 
 
 # ============================================================
@@ -63,7 +65,7 @@ def sep():
 
 
 # ============================================================
-# LIMPEZA
+# PROCESSOS
 # ============================================================
 
 def stop_process(process, name):
@@ -72,6 +74,7 @@ def stop_process(process, name):
         return
 
     try:
+
         if process.poll() is None:
 
             log(f"[STOP] Parando {name}...")
@@ -105,23 +108,42 @@ def cleanup():
     log("ENCERRANDO WEBTV")
     sep()
 
-    stop_process(ngrok_process, "ngrok")
-    stop_process(ffmpeg, "FFmpeg")
-    stop_process(chromium, "Chromium")
-    stop_process(pulse, "PulseAudio")
-    stop_process(xvfb, "Xvfb")
+    global http_server
 
-    if http_server:
+    try:
 
-        try:
+        if http_server is not None:
+
             http_server.shutdown()
-        except Exception:
-            pass
-
-        try:
             http_server.server_close()
-        except Exception:
-            pass
+
+    except Exception:
+        pass
+
+    stop_process(
+        ngrok_process,
+        "ngrok"
+    )
+
+    stop_process(
+        ffmpeg,
+        "FFmpeg"
+    )
+
+    stop_process(
+        chromium,
+        "Chromium"
+    )
+
+    stop_process(
+        pulse,
+        "PulseAudio"
+    )
+
+    stop_process(
+        xvfb,
+        "Xvfb"
+    )
 
 
 def signal_handler(signum, frame):
@@ -130,8 +152,15 @@ def signal_handler(signum, frame):
     sys.exit(0)
 
 
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(
+    signal.SIGINT,
+    signal_handler
+)
+
+signal.signal(
+    signal.SIGTERM,
+    signal_handler
+)
 
 
 # ============================================================
@@ -227,7 +256,10 @@ def start_xvfb():
     time.sleep(2)
 
     if xvfb.poll() is not None:
-        raise RuntimeError("Xvfb não iniciou.")
+
+        raise RuntimeError(
+            "Xvfb não iniciou."
+        )
 
     log("Xvfb pronto.")
 
@@ -241,13 +273,27 @@ def start_pulseaudio():
     global pulse
 
     sep()
+
     log("[3] Iniciando PulseAudio...")
 
     env = os.environ.copy()
+
     env["DISPLAY"] = DISPLAY
 
+    env["PULSE_RUNTIME_PATH"] = (
+        f"/tmp/pulse-{os.getuid()}"
+    )
+
+    os.makedirs(
+        env["PULSE_RUNTIME_PATH"],
+        exist_ok=True
+    )
+
     subprocess.run(
-        ["pulseaudio", "--kill"],
+        [
+            "pulseaudio",
+            "--kill"
+        ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
     )
@@ -258,11 +304,26 @@ def start_pulseaudio():
         [
             "pulseaudio",
             "--start",
-            "--exit-idle-time=-1"
+            "--exit-idle-time=-1",
+            "--daemonize=no"
         ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         env=env
+    )
+
+    time.sleep(2)
+
+    subprocess.run(
+        [
+            "pactl",
+            "load-module",
+            "module-null-sink",
+            "sink_name=webtv",
+            "sink_properties=device.description=WebTV"
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
     )
 
     time.sleep(2)
@@ -280,19 +341,9 @@ def start_pulseaudio():
 
     if "webtv" not in result.stdout:
 
-        subprocess.run(
-            [
-                "pactl",
-                "load-module",
-                "module-null-sink",
-                "sink_name=webtv",
-                "sink_properties=device.description=WebTV"
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+        raise RuntimeError(
+            "Não foi possível criar o dispositivo de áudio webtv."
         )
-
-    time.sleep(2)
 
     log("Fontes de áudio:")
 
@@ -323,11 +374,7 @@ class StreamHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
-    # IMPORTANTE:
-    # Não usar self.headers() porque BaseHTTPRequestHandler
-    # já possui self.headers como atributo HTTPMessage.
-
-    def send_common_headers(self):
+    def add_headers(self):
 
         self.send_header(
             "Access-Control-Allow-Origin",
@@ -358,22 +405,18 @@ class StreamHandler(BaseHTTPRequestHandler):
 
         path = self.path.split("?")[0]
 
-        # ----------------------------------------------------
+        # ====================================================
         # PLAYER
-        # ----------------------------------------------------
+        # ====================================================
 
         if path == "/":
 
             html = """<!DOCTYPE html>
 <html lang="pt-BR">
-
 <head>
-
 <meta charset="UTF-8">
-
 <meta name="viewport"
       content="width=device-width,initial-scale=1">
-
 <title>WEBTV AO VIVO</title>
 
 <style>
@@ -400,22 +443,14 @@ video {
     top: 12px;
     left: 12px;
     z-index: 10;
-
     color: white;
-
     background: rgba(0,0,0,.75);
-
     padding: 8px 12px;
-
     border-radius: 5px;
-
     font-family: Arial,sans-serif;
-
-    font-size: 14px;
 }
 
 </style>
-
 </head>
 
 <body>
@@ -432,11 +467,14 @@ video {
 
 <script>
 
-const video = document.getElementById("video");
-const status = document.getElementById("status");
+const video =
+    document.getElementById("video");
+
+const status =
+    document.getElementById("status");
 
 let hls = null;
-let reconnectTimer = null;
+let retryTimer = null;
 
 
 function setStatus(text) {
@@ -444,18 +482,18 @@ function setStatus(text) {
 }
 
 
-function reconnect() {
+function retry() {
 
-    if (reconnectTimer)
+    if (retryTimer)
         return;
 
-    reconnectTimer = setTimeout(() => {
+    retryTimer = setTimeout(() => {
 
-        reconnectTimer = null;
+        retryTimer = null;
 
         start();
 
-    }, 2000);
+    }, 3000);
 }
 
 
@@ -468,8 +506,7 @@ function start() {
     ) {
 
         video.src =
-            "/live.m3u8?t=" +
-            Date.now();
+            "/live.m3u8";
 
         video.play()
             .then(() => {
@@ -496,7 +533,7 @@ function start() {
         document.createElement("script");
 
     script.src =
-        "https://cdn.jsdelivr.net/npm/hls.js@1.6.2";
+        "https://cdn.jsdelivr.net/npm/hls.js@latest";
 
     script.onload = () => {
 
@@ -509,11 +546,13 @@ function start() {
 
         } else {
 
-            setStatus("HLS não suportado");
+            setStatus(
+                "HLS não suportado"
+            );
         }
     };
 
-    script.onerror = reconnect;
+    script.onerror = retry;
 
     document.head.appendChild(script);
 }
@@ -527,7 +566,6 @@ function createHls() {
             hls.destroy();
         } catch (e) {}
 
-        hls = null;
     }
 
 
@@ -537,36 +575,38 @@ function createHls() {
 
         lowLatencyMode: false,
 
-        backBufferLength: 30,
+        backBufferLength: 20,
 
-        maxBufferLength: 20,
+        maxBufferLength: 30,
 
-        maxMaxBufferLength: 40,
+        maxMaxBufferLength: 60,
 
         liveSyncDurationCount: 3,
 
         liveMaxLatencyDurationCount: 8,
 
-        manifestLoadingMaxRetry: 30,
+        manifestLoadingMaxRetry: 20,
 
         manifestLoadingRetryDelay: 1000,
 
-        levelLoadingMaxRetry: 30,
+        levelLoadingMaxRetry: 20,
 
         levelLoadingRetryDelay: 1000,
 
-        fragLoadingMaxRetry: 30,
+        fragLoadingMaxRetry: 20,
 
         fragLoadingRetryDelay: 1000
+
     });
 
 
     hls.loadSource(
-        "/live.m3u8?t=" +
-        Date.now()
+        "/live.m3u8"
     );
 
-    hls.attachMedia(video);
+    hls.attachMedia(
+        video
+    );
 
 
     hls.on(
@@ -588,7 +628,9 @@ function createHls() {
             if (!data.fatal)
                 return;
 
-            setStatus("Reconectando...");
+            setStatus(
+                "Reconectando..."
+            );
 
 
             if (
@@ -623,7 +665,7 @@ function createHls() {
 
             hls = null;
 
-            reconnect();
+            retry();
         }
     );
 }
@@ -643,7 +685,7 @@ video.addEventListener(
 
 video.addEventListener(
     "stalled",
-    () => setStatus("Reconectando...")
+    () => setStatus("Buffering...")
 );
 
 
@@ -669,7 +711,7 @@ start();
                 str(len(data))
             )
 
-            self.send_common_headers()
+            self.add_headers()
 
             self.end_headers()
 
@@ -681,9 +723,9 @@ start();
             return
 
 
-        # ----------------------------------------------------
+        # ====================================================
         # PLAYLIST
-        # ----------------------------------------------------
+        # ====================================================
 
         if path == "/live.m3u8":
 
@@ -693,26 +735,25 @@ start();
 
                 self.send_response(503)
 
-                self.send_common_headers()
+                self.add_headers()
 
                 self.end_headers()
 
                 return
 
-
             try:
+
                 data = file.read_bytes()
 
             except Exception:
 
                 self.send_response(503)
 
-                self.send_common_headers()
+                self.add_headers()
 
                 self.end_headers()
 
                 return
-
 
             self.send_response(200)
 
@@ -726,7 +767,7 @@ start();
                 str(len(data))
             )
 
-            self.send_common_headers()
+            self.add_headers()
 
             self.end_headers()
 
@@ -738,9 +779,9 @@ start();
             return
 
 
-        # ----------------------------------------------------
+        # ====================================================
         # SEGMENTOS
-        # ----------------------------------------------------
+        # ====================================================
 
         if path.startswith("/segment_"):
 
@@ -753,20 +794,20 @@ start();
             ):
 
                 self.send_response(400)
+
                 self.end_headers()
 
                 return
-
 
             file = STREAM_DIR / filename
 
             if not file.exists():
 
                 self.send_response(404)
+
                 self.end_headers()
 
                 return
-
 
             try:
 
@@ -784,12 +825,14 @@ start();
                     str(size)
                 )
 
-                self.send_common_headers()
+                self.add_headers()
 
                 self.end_headers()
 
-
-                with open(file, "rb") as f:
+                with open(
+                    file,
+                    "rb"
+                ) as f:
 
                     while True:
 
@@ -813,14 +856,10 @@ start();
 
         self.send_response(404)
 
-        self.send_common_headers()
+        self.add_headers()
 
         self.end_headers()
 
-
-# ============================================================
-# SERVIDOR
-# ============================================================
 
 def start_http():
 
@@ -885,6 +924,7 @@ def start_chromium():
     browser = get_chromium()
 
     env = os.environ.copy()
+
     env["DISPLAY"] = DISPLAY
 
     profile = "/tmp/webtv-chromium"
@@ -904,8 +944,6 @@ def start_chromium():
         "--disable-dev-shm-usage",
 
         "--disable-gpu",
-
-        "--disable-software-rasterizer",
 
         "--disable-background-networking",
 
@@ -958,6 +996,7 @@ def start_chromium():
         )
 
     log("Chromium iniciado.")
+
     log("Abrindo página:")
     log(PAGE_URL)
 
@@ -1019,7 +1058,9 @@ def fullscreen():
             stderr=subprocess.DEVNULL
         )
 
-        log("[TELA] Chromium em tela cheia.")
+        log(
+            "[TELA] Chromium em tela cheia."
+        )
 
     except Exception:
         pass
@@ -1037,25 +1078,33 @@ def start_ffmpeg():
 
     log("INICIANDO FFMPEG")
 
-    playlist = STREAM_DIR / "live.m3u8"
+    playlist = (
+        STREAM_DIR /
+        "live.m3u8"
+    )
+
+    segment_pattern = (
+        STREAM_DIR /
+        "segment_%06d.ts"
+    )
 
     command = [
 
         "ffmpeg",
-
-        "-y",
 
         "-hide_banner",
 
         "-loglevel",
         "warning",
 
-        # ----------------------------------------------------
-        # VIDEO
-        # ----------------------------------------------------
+        "-nostdin",
+
+        # ====================================================
+        # VÍDEO
+        # ====================================================
 
         "-thread_queue_size",
-        "4096",
+        "1024",
 
         "-f",
         "x11grab",
@@ -1072,12 +1121,12 @@ def start_ffmpeg():
         "-i",
         f"{DISPLAY}.0",
 
-        # ----------------------------------------------------
-        # AUDIO
-        # ----------------------------------------------------
+        # ====================================================
+        # ÁUDIO
+        # ====================================================
 
         "-thread_queue_size",
-        "4096",
+        "1024",
 
         "-f",
         "pulse",
@@ -1085,9 +1134,9 @@ def start_ffmpeg():
         "-i",
         "webtv.monitor",
 
-        # ----------------------------------------------------
+        # ====================================================
         # MAP
-        # ----------------------------------------------------
+        # ====================================================
 
         "-map",
         "0:v:0",
@@ -1095,9 +1144,9 @@ def start_ffmpeg():
         "-map",
         "1:a:0",
 
-        # ----------------------------------------------------
-        # VIDEO
-        # ----------------------------------------------------
+        # ====================================================
+        # VÍDEO
+        # ====================================================
 
         "-c:v",
         "libx264",
@@ -1133,11 +1182,11 @@ def start_ffmpeg():
         "2000k",
 
         "-bufsize",
-        "4000k",
+        "3600k",
 
-        # ----------------------------------------------------
-        # AUDIO
-        # ----------------------------------------------------
+        # ====================================================
+        # ÁUDIO
+        # ====================================================
 
         "-c:a",
         "aac",
@@ -1154,9 +1203,9 @@ def start_ffmpeg():
         "-af",
         "aresample=async=1:min_hard_comp=0.100:first_pts=0",
 
-        # ----------------------------------------------------
+        # ====================================================
         # HLS
-        # ----------------------------------------------------
+        # ====================================================
 
         "-f",
         "hls",
@@ -1165,28 +1214,28 @@ def start_ffmpeg():
         "2",
 
         "-hls_list_size",
-        "6",
+        "10",
 
         "-hls_flags",
-        "delete_segments+append_list+independent_segments",
+        "delete_segments+append_list+independent_segments+program_date_time",
 
         "-hls_delete_threshold",
-        "3",
+        "5",
+
+        "-start_number",
+        "0",
 
         "-hls_segment_filename",
-
-        str(
-            STREAM_DIR /
-            "segment_%05d.ts"
-        ),
+        str(segment_pattern),
 
         str(playlist)
     ]
 
-    log("FFmpeg iniciado.")
-
     env = os.environ.copy()
+
     env["DISPLAY"] = DISPLAY
+
+    log("FFmpeg iniciado.")
 
     ffmpeg = subprocess.Popen(
         command,
@@ -1197,7 +1246,6 @@ def start_ffmpeg():
         env=env
     )
 
-
     def read_output():
 
         try:
@@ -1207,11 +1255,12 @@ def start_ffmpeg():
                 line = line.strip()
 
                 if line:
-                    log("[FFMPEG] " + line)
+                    log(
+                        "[FFMPEG] " + line
+                    )
 
         except Exception:
             pass
-
 
     threading.Thread(
         target=read_output,
@@ -1230,20 +1279,27 @@ def start_ffmpeg():
 
 
 # ============================================================
-# HLS
+# AGUARDAR HLS
 # ============================================================
 
 def wait_hls():
 
     sep()
 
-    log("[HLS] Aguardando playlist...")
+    log(
+        "[HLS] Aguardando playlist..."
+    )
 
-    playlist = STREAM_DIR / "live.m3u8"
+    playlist = (
+        STREAM_DIR /
+        "live.m3u8"
+    )
 
     start = time.time()
 
-    while time.time() - start < 60:
+    while (
+        time.time() - start < 60
+    ):
 
         if stop_event.is_set():
             return False
@@ -1258,7 +1314,9 @@ def wait_hls():
 
             if len(segments) >= 2:
 
-                log("[HLS] Playlist pronta.")
+                log(
+                    "[HLS] Playlist pronta."
+                )
 
                 return True
 
@@ -1271,157 +1329,119 @@ def wait_hls():
 # NGROK
 # ============================================================
 
-def get_ngrok_token():
+def find_ngrok():
 
-    token = os.environ.get(
-        "3Hp2YbxQ2bolHAikPRlZgIA4Rtr_71CZKugfEWPTKPS9LXXJk",
-        ""
-    ).strip()
+    global NGROK_BIN
 
-    return token
+    if NGROK_BIN:
+        return NGROK_BIN
+
+    possible = [
+
+        shutil.which("ngrok"),
+
+        "/usr/local/bin/ngrok",
+
+        "/usr/bin/ngrok",
+
+        str(
+            Path.home() /
+            ".local/bin/ngrok"
+        ),
+
+        str(
+            Path.home() /
+            "ngrok"
+        )
+    ]
+
+    for path in possible:
+
+        if path and os.path.isfile(path):
+
+            if os.access(
+                path,
+                os.X_OK
+            ):
+
+                NGROK_BIN = path
+
+                return path
+
+    return None
 
 
-def install_ngrok():
+def configure_ngrok():
 
-    if NGROK_BIN.exists():
+    binary = find_ngrok()
 
-        try:
-
-            NGROK_BIN.chmod(0o755)
-
-        except Exception:
-            pass
-
-        return True
-
-
-    system = platform.system().lower()
-    machine = platform.machine().lower()
-
-    if system != "linux":
+    if not binary:
 
         log(
-            "[NGROK] Sistema não suportado para "
-            "instalação automática."
+            "[NGROK] Executável não encontrado."
+        )
+
+        log(
+            "[NGROK] Instale o ngrok antes de executar o app."
         )
 
         return False
 
-
-    if machine in ("x86_64", "amd64"):
-
-        filename = "ngrok-v3-stable-linux-amd64.tgz"
-
-    elif machine in ("aarch64", "arm64"):
-
-        filename = "ngrok-v3-stable-linux-arm64.tgz"
-
-    else:
+    if not NGROK_AUTHTOKEN:
 
         log(
-            "[NGROK] Arquitetura não suportada: "
-            + machine
+            "[NGROK] NGROK_AUTHTOKEN não configurado."
+        )
+
+        log(
+            "[NGROK] Configure o secret NGROK_AUTHTOKEN no GitHub."
         )
 
         return False
-
-
-    url = (
-        "https://bin.equinox.io/c/"
-        "bNyj1mQVY4c/"
-        + filename
-    )
-
 
     try:
 
-        NGROK_DIR.mkdir(
-            parents=True,
-            exist_ok=True
+        result = subprocess.run(
+            [
+                binary,
+                "config",
+                "add-authtoken",
+                NGROK_AUTHTOKEN
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=20
         )
 
-        archive = NGROK_DIR / "ngrok.tgz"
+        if result.returncode != 0:
 
-        log("[NGROK] Baixando agente...")
-
-        urllib.request.urlretrieve(
-            url,
-            archive
-        )
-
-        log("[NGROK] Extraindo agente...")
-
-        with tarfile.open(
-            archive,
-            "r:gz"
-        ) as tar:
-
-            member = None
-
-            for item in tar.getmembers():
-
-                if item.name.endswith("/ngrok") or item.name == "ngrok":
-
-                    member = item
-                    break
-
-            if member is None:
-
-                raise RuntimeError(
-                    "Executável ngrok não encontrado no pacote."
-                )
-
-            member.name = "ngrok"
-
-            tar.extract(
-                member,
-                NGROK_DIR
+            log(
+                "[NGROK] Falha ao configurar autenticação."
             )
 
+            if result.stderr:
+                log(
+                    result.stderr.strip()
+                )
 
-        NGROK_BIN.chmod(0o755)
+            return False
 
-        try:
-            archive.unlink()
-        except Exception:
-            pass
-
-        log("[NGROK] Agente instalado.")
+        log(
+            "[NGROK] Autenticação configurada."
+        )
 
         return True
 
     except Exception as e:
 
         log(
-            "[NGROK] Falha ao instalar:"
+            "[NGROK] Erro ao configurar:"
         )
 
         log(str(e))
 
         return False
-
-
-def get_ngrok_binary():
-
-    path = shutil.which("ngrok")
-
-    if path:
-        return path
-
-    if NGROK_BIN.exists():
-
-        try:
-            NGROK_BIN.chmod(0o755)
-        except Exception:
-            pass
-
-        return str(NGROK_BIN)
-
-    if install_ngrok():
-
-        return str(NGROK_BIN)
-
-    return None
 
 
 def extract_ngrok_url(text):
@@ -1435,7 +1455,6 @@ def extract_ngrok_url(text):
         r"https://[a-zA-Z0-9-]+\.ngrok-free\.dev",
 
         r"https://[a-zA-Z0-9-]+\.ngrok\.io"
-
     ]
 
     for pattern in patterns:
@@ -1451,53 +1470,46 @@ def extract_ngrok_url(text):
     return None
 
 
-def ngrok_alive():
-
-    return (
-        ngrok_process is not None
-        and ngrok_process.poll() is None
-    )
-
-
 def start_ngrok():
 
     global ngrok_process
-    global public_url
+    global tunnel_url
 
-    if ngrok_alive():
-        return public_url
+    binary = find_ngrok()
 
+    if not binary:
 
-    token = get_ngrok_token()
+        log(
+            "[NGROK] Executável não encontrado."
+        )
 
-    if not token:
+        return None
+
+    if not NGROK_AUTHTOKEN:
 
         log(
             "[NGROK] NGROK_AUTHTOKEN não configurado."
         )
 
         log(
-            "[NGROK] Configure o secret "
-            "NGROK_AUTHTOKEN no GitHub."
+            "[NGROK] Configure o secret NGROK_AUTHTOKEN no GitHub."
         )
 
         return None
 
+    if ngrok_process is not None:
 
-    binary = get_ngrok_binary()
+        if ngrok_process.poll() is None:
+            return tunnel_url
 
-    if not binary:
-
-        log(
-            "[NGROK] Não foi possível obter o executável."
-        )
-
+    if not configure_ngrok():
         return None
-
 
     sep()
 
-    log("[NGROK] Iniciando túnel...")
+    log(
+        "[NGROK] Iniciando túnel público..."
+    )
 
     command = [
 
@@ -1507,44 +1519,42 @@ def start_ngrok():
 
         str(PORT),
 
-        "--authtoken",
-        token,
+        "--log=stdout",
 
-        "--log",
-        "stdout",
-
-        "--log-format",
-        "logfmt"
+        "--log-format=logfmt"
     ]
-
 
     try:
 
         ngrok_process = subprocess.Popen(
             command,
-            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
             text=True,
             bufsize=1
         )
 
     except Exception as e:
 
-        log("[NGROK] Erro ao iniciar:")
+        log(
+            "[NGROK] Erro ao iniciar:"
+        )
+
         log(str(e))
 
         ngrok_process = None
 
         return None
 
-
     start = time.time()
 
-    output = ""
+    while (
+        time.time() - start < 30
+    ):
 
-
-    while time.time() - start < 30:
+        if stop_event.is_set():
+            return None
 
         if ngrok_process.poll() is not None:
 
@@ -1556,62 +1566,130 @@ def start_ngrok():
 
             return None
 
+        try:
 
-        line = ngrok_process.stdout.readline()
+            line = ngrok_process.stdout.readline()
 
-        if not line:
+        except Exception:
+            line = ""
 
-            time.sleep(.2)
-            continue
+        if line:
 
+            line = line.strip()
 
-        line = line.strip()
+            if line:
+                log(
+                    "[NGROK] " + line
+                )
 
-        if not line:
-            continue
-
-
-        output += line + "\n"
-
-        url = extract_ngrok_url(line)
-
-        if url:
-
-            public_url = url
-
-            sep()
-
-            log("NGROK ATIVO")
-
-            log("LINK PRINCIPAL:")
-
-            log(public_url)
-
-            log("LINK HLS:")
-
-            log(
-                public_url +
-                "/live.m3u8"
+            url = extract_ngrok_url(
+                line
             )
 
-            sep()
+            if url:
 
-            return public_url
+                tunnel_url = url
 
+                sep()
+
+                log(
+                    "LINK DA TRANSMISSÃO"
+                )
+
+                sep()
+
+                log(
+                    "LINK PRINCIPAL:"
+                )
+
+                log(
+                    tunnel_url
+                )
+
+                log(
+                    "LINK HLS:"
+                )
+
+                log(
+                    tunnel_url +
+                    "/live.m3u8"
+                )
+
+                sep()
+
+                return tunnel_url
+
+        time.sleep(.2)
+
+    # ========================================================
+    # FALLBACK: API LOCAL DO NGROK
+    # ========================================================
+
+    try:
+
+        import urllib.request
+        import json
+
+        response = urllib.request.urlopen(
+            "http://127.0.0.1:4040/api/tunnels",
+            timeout=5
+        )
+
+        data = json.loads(
+            response.read().decode()
+        )
+
+        for tunnel in data.get(
+            "tunnels",
+            []
+        ):
+
+            public_url = tunnel.get(
+                "public_url",
+                ""
+            )
+
+            if public_url.startswith(
+                "https://"
+            ):
+
+                tunnel_url = public_url
+
+                sep()
+
+                log(
+                    "LINK DA TRANSMISSÃO"
+                )
+
+                sep()
+
+                log(
+                    "LINK PRINCIPAL:"
+                )
+
+                log(
+                    tunnel_url
+                )
+
+                log(
+                    "LINK HLS:"
+                )
+
+                log(
+                    tunnel_url +
+                    "/live.m3u8"
+                )
+
+                sep()
+
+                return tunnel_url
+
+    except Exception:
+        pass
 
     log(
         "[NGROK] Não foi possível obter o endereço público."
     )
-
-    if output:
-        log(output[-2000:])
-
-    stop_process(
-        ngrok_process,
-        "ngrok"
-    )
-
-    ngrok_process = None
 
     return None
 
@@ -1622,31 +1700,45 @@ def start_ngrok():
 
 def ngrok_monitor():
 
+    global tunnel_url
     global ngrok_process
 
     while not stop_event.is_set():
 
         time.sleep(10)
 
-        if ngrok_alive():
+        if stop_event.is_set():
+            return
+
+        if not NGROK_AUTHTOKEN:
+
+            # Não fica criando um loop infinito
+            # se o secret não foi configurado.
             continue
 
+        if ngrok_process is not None:
 
-        if not get_ngrok_token():
-
-            # Não fica martelando o log infinitamente.
-            time.sleep(30)
-
-            continue
-
+            if ngrok_process.poll() is None:
+                continue
 
         sep()
 
-        log("[NGROK] Túnel desconectado.")
-        log("[NGROK] FFmpeg continua funcionando.")
-        log("[NGROK] Tentando reconectar...")
+        log(
+            "[NGROK] Túnel desconectado."
+        )
+
+        log(
+            "[NGROK] FFmpeg continua funcionando."
+        )
+
+        log(
+            "[NGROK] Tentando reconectar..."
+        )
 
         ngrok_process = None
+        tunnel_url = None
+
+        delay = 2
 
         for attempt in range(1, 6):
 
@@ -1667,11 +1759,11 @@ def ngrok_monitor():
 
                 break
 
-            time.sleep(
-                min(
-                    attempt * 3,
-                    15
-                )
+            time.sleep(delay)
+
+            delay = min(
+                delay * 2,
+                20
             )
 
 
@@ -1692,10 +1784,12 @@ def ffmpeg_monitor():
 
             sep()
 
-            log("[ERRO] FFmpeg parou.")
+            log(
+                "[ERRO] FFmpeg parou."
+            )
 
             log(
-                "[ERRO] A transmissão foi encerrada."
+                "[ERRO] Transmissão encerrada."
             )
 
             sep()
@@ -1711,7 +1805,10 @@ def ffmpeg_monitor():
 
 def hls_monitor():
 
-    playlist = STREAM_DIR / "live.m3u8"
+    playlist = (
+        STREAM_DIR /
+        "live.m3u8"
+    )
 
     previous = 0
 
@@ -1727,17 +1824,19 @@ def hls_monitor():
 
             continue
 
-
         try:
 
-            current = playlist.stat().st_mtime
+            current = (
+                playlist.stat().st_mtime_ns
+            )
 
         except Exception:
-
             continue
 
-
-        if current == previous:
+        if (
+            previous != 0
+            and current == previous
+        ):
 
             log(
                 "[HLS] ALERTA: playlist não atualizou."
@@ -1752,39 +1851,65 @@ def hls_monitor():
 
 def main():
 
-    global public_url
+    sep()
+
+    log(
+        "WEBTV STREAM 24H"
+    )
 
     sep()
 
-    log("WEBTV STREAM 24H")
-
-    sep()
-
-
-    # Não instala apt/pip aqui.
-    # O ambiente deve instalar os programas
-    # antes de executar este arquivo.
+    # ========================================================
+    # NÃO INSTALA PACOTES AQUI
+    # ========================================================
 
     check_programs()
 
+    # ========================================================
+    # 1
+    # ========================================================
 
     clean_stream()
 
+    # ========================================================
+    # 2
+    # ========================================================
+
     start_xvfb()
+
+    # ========================================================
+    # 3
+    # ========================================================
 
     start_pulseaudio()
 
+    # ========================================================
+    # 4
+    # ========================================================
+
     start_http()
+
+    # ========================================================
+    # 5
+    # ========================================================
 
     start_chromium()
 
-    time.sleep(6)
+    time.sleep(8)
 
     fullscreen()
 
-    time.sleep(2)
+    time.sleep(3)
+
+    # ========================================================
+    # 6
+    # ========================================================
 
     start_ffmpeg()
+
+    # ========================================================
+    # 7
+    # ========================================================
 
     if not wait_hls():
 
@@ -1792,51 +1917,55 @@ def main():
             "HLS não foi criado."
         )
 
-
-    # --------------------------------------------------------
+    # ========================================================
+    # 8
     # NGROK
-    # --------------------------------------------------------
+    # ========================================================
 
-    public_url = start_ngrok()
+    start_ngrok()
 
-
-    # --------------------------------------------------------
+    # ========================================================
     # TRANSMISSÃO
-    # --------------------------------------------------------
+    # ========================================================
 
     sep()
 
-    log("TRANSMISSÃO ATIVA")
+    log(
+        "TRANSMISSÃO ATIVA"
+    )
 
     sep()
 
-    log("HLS LOCAL:")
+    log(
+        "HLS LOCAL:"
+    )
 
     log(
         f"http://127.0.0.1:{PORT}/live.m3u8"
     )
 
-
-    if public_url:
-
-        log("")
-
-        log("LINK PÚBLICO:")
-
-        log(public_url)
+    if tunnel_url:
 
         log("")
-
-        log("LINK HLS:")
 
         log(
-            public_url +
+            "LINK PRINCIPAL:"
+        )
+
+        log(
+            tunnel_url
+        )
+
+        log(
+            "LINK HLS:"
+        )
+
+        log(
+            tunnel_url +
             "/live.m3u8"
         )
 
     else:
-
-        log("")
 
         log(
             "[AVISO] Túnel público não está ativo."
@@ -1844,10 +1973,9 @@ def main():
 
     sep()
 
-
-    # --------------------------------------------------------
+    # ========================================================
     # MONITORES
-    # --------------------------------------------------------
+    # ========================================================
 
     threading.Thread(
         target=ngrok_monitor,
@@ -1864,10 +1992,9 @@ def main():
         daemon=True
     ).start()
 
-
-    # --------------------------------------------------------
-    # 24 HORAS
-    # --------------------------------------------------------
+    # ========================================================
+    # MANTER 24H
+    # ========================================================
 
     while not stop_event.is_set():
 
@@ -1892,9 +2019,13 @@ if __name__ == "__main__":
 
         sep()
 
-        log("[ERRO FATAL]")
+        log(
+            "[ERRO FATAL]"
+        )
 
-        log(str(e))
+        log(
+            str(e)
+        )
 
         sep()
 
