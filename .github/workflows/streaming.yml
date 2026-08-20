@@ -3,13 +3,6 @@ name: Stream
 on:
   workflow_dispatch:
 
-permissions:
-  contents: read
-
-concurrency:
-  group: webtv-stream
-  cancel-in-progress: true
-
 jobs:
 
   run-stream:
@@ -23,11 +16,12 @@ jobs:
       - name: Baixar código
         uses: actions/checkout@v4
 
+
       - name: Instalar sistema
         shell: bash
         run: |
 
-          set -euxo pipefail
+          set -e
 
           echo "=========================================="
           echo "INSTALANDO SISTEMA"
@@ -35,45 +29,69 @@ jobs:
 
           sudo apt-get update
 
-          sudo apt-get install -y \
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
             ffmpeg \
             pulseaudio \
             pulseaudio-utils \
             xvfb \
             xdotool \
             chromium \
-            imagemagick \
             curl \
+            wget \
             ca-certificates
 
-      - name: Instalar cloudflared
+          echo "=========================================="
+          echo "SISTEMA INSTALADO"
+          echo "=========================================="
+
+
+      - name: Instalar Cloudflare Tunnel
         shell: bash
         run: |
 
-          set -euxo pipefail
+          set -e
 
           echo "=========================================="
           echo "INSTALANDO CLOUDFLARED"
           echo "=========================================="
 
-          curl \
-            --fail \
-            --show-error \
-            --location \
-            --retry 5 \
-            --retry-delay 2 \
-            --output cloudflared.deb \
-            "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb"
+          ARCH="$(dpkg --print-architecture)"
 
-          sudo dpkg -i cloudflared.deb
+          case "$ARCH" in
+
+            amd64)
+              CLOUDFLARED_ARCH="amd64"
+              ;;
+
+            arm64)
+              CLOUDFLARED_ARCH="arm64"
+              ;;
+
+            *)
+              echo "Arquitetura não suportada: $ARCH"
+              exit 1
+              ;;
+
+          esac
+
+          wget -q \
+            -O /tmp/cloudflared.deb \
+            "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CLOUDFLARED_ARCH}.deb"
+
+          sudo dpkg -i /tmp/cloudflared.deb
 
           cloudflared --version
+
+          echo "=========================================="
+          echo "CLOUDFLARED INSTALADO"
+          echo "=========================================="
+
 
       - name: Verificar sistema
         shell: bash
         run: |
 
-          set -euxo pipefail
+          set -e
 
           echo "=========================================="
           echo "VERIFICANDO SISTEMA"
@@ -89,7 +107,7 @@ jobs:
           pulseaudio --version
 
           echo "Xvfb:"
-          Xvfb -version || true
+          Xvfb -version 2>&1 | head -n 1 || true
 
           echo "Cloudflared:"
           cloudflared --version
@@ -97,43 +115,31 @@ jobs:
           echo "Python:"
           python3 --version
 
-      - name: Preparar ambiente
-        shell: bash
-        run: |
+          echo "=========================================="
+          echo "SISTEMA OK"
+          echo "=========================================="
 
-          set -euxo pipefail
-
-          export DISPLAY=:99
-
-          mkdir -p stream
-
-          rm -f stream/live.m3u8
-          rm -f stream/segment_*.ts
 
       - name: Iniciar transmissão
         shell: bash
         env:
+
           DISPLAY: ":99"
+
           PULSE_SINK: "webtv"
+
           PYTHONUNBUFFERED: "1"
+
         run: |
 
-          set +e
+          set -e
 
           echo "=========================================="
           echo "INICIANDO WEBTV"
           echo "=========================================="
 
-          python3 app.py
+          python3 -u app.py
 
-          CODE=$?
-
-          echo "=========================================="
-          echo "WEBTV FINALIZADA"
-          echo "Código: $CODE"
-          echo "=========================================="
-
-          exit $CODE
 
       - name: Salvar diagnósticos
         if: always()
@@ -143,8 +149,6 @@ jobs:
 
           name: webtv-debug
 
-          path: |
-            stream/
-            /tmp/*.log
+          path: stream/
 
           if-no-files-found: ignore
