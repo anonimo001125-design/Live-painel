@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
 
 jobs:
+
   run-stream:
 
     runs-on: ubuntu-24.04
@@ -17,67 +18,55 @@ jobs:
 
       - name: Instalar sistema
         run: |
+
           sudo apt-get update
 
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          sudo apt-get install -y \
             ffmpeg \
             pulseaudio \
             pulseaudio-utils \
             xvfb \
             xdotool \
             chromium \
-            openssh-client \
-            curl \
-            imagemagick
+            openssh-client
+
+      - name: Instalar Pyppeteer
+        run: |
+
+          python3 -m pip install --upgrade pip
+
+          pip install --no-cache-dir pyppeteer
 
       - name: Verificar sistema
         run: |
-          set -e
-
-          echo "=========================================="
-          echo "VERIFICANDO SISTEMA"
-          echo "=========================================="
 
           ffmpeg -version | head -n 1
           chromium --version
           pulseaudio --version
-          pactl --version
-          Xvfb -version 2>&1 | head -n 1
-          ssh -V 2>&1 | head -n 1
-          curl --version | head -n 1
-          xdotool --version
-
-          echo "=========================================="
-          echo "SISTEMA OK"
-          echo "=========================================="
+          python3 --version
 
       - name: Iniciar transmissão
         env:
-          DISPLAY: ":99"
-          PULSE_SINK: "webtv"
-          PYTHONUNBUFFERED: "1"
-        run: |
-          set +e
 
-          echo "=========================================="
-          echo "INICIANDO WEBTV"
-          echo "=========================================="
+          PYPPETEER_NO_CHROMIUM_DOWNLOAD: "1"
+
+          DISPLAY: ":99"
+
+          PULSE_SINK: "webtv"
+
+        run: |
 
           python3 app.py
 
-          STATUS=$?
-
-          echo "=========================================="
-          echo "WEBTV FINALIZADA"
-          echo "Código: $STATUS"
-          echo "=========================================="
-
-          exit $STATUS
-
       - name: Salvar diagnósticos
         if: always()
+
         uses: actions/upload-artifact@v4
+
         with:
+
           name: webtv-debug
+
           path: stream/
+
           if-no-files-found: ignore
