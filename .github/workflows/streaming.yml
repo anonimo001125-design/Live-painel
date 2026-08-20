@@ -1,116 +1,131 @@
-
 name: Stream
 
 on:
   workflow_dispatch:
 
 jobs:
-
   run-stream:
-
     runs-on: ubuntu-24.04
 
+    # O GitHub Actions não garante 24h.
+    # Este limite permite aproximadamente 5h50.
     timeout-minutes: 350
 
     steps:
 
+      # ======================================================
+      # 1. BAIXAR O CÓDIGO
+      # ======================================================
+
       - name: Baixar código
         uses: actions/checkout@v4
 
+      # ======================================================
+      # 2. INSTALAR DEPENDÊNCIAS
+      # ======================================================
 
       - name: Instalar sistema
         shell: bash
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
+          set -euxo pipefail
 
-          set -e
+          echo "=========================================="
+          echo "ATUALIZANDO APT"
+          echo "=========================================="
+
+          sudo apt-get update -y
 
           echo "=========================================="
           echo "INSTALANDO DEPENDÊNCIAS"
           echo "=========================================="
 
-          sudo apt-get update
-
-          sudo apt-get install -y \
+          sudo apt-get install -y --no-install-recommends \
             ffmpeg \
             pulseaudio \
             pulseaudio-utils \
             xvfb \
             xdotool \
             chromium \
+            openssh-client \
             curl \
             ca-certificates \
-            gnupg
-
-          echo "=========================================="
-          echo "INSTALANDO CLOUDFLARED"
-          echo "=========================================="
-
-          sudo mkdir -p \
-            --mode=0755 \
-            /usr/share/keyrings
-
-          curl -fsSL \
-            https://pkg.cloudflare.com/cloudflare-main.gpg \
-            | sudo tee \
-            /usr/share/keyrings/cloudflare-main.gpg \
-            > /dev/null
-
-          echo \
-            "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main" \
-            | sudo tee \
-            /etc/apt/sources.list.d/cloudflared.list \
-            > /dev/null
-
-          sudo apt-get update
-
-          sudo apt-get install -y cloudflared
+            imagemagick
 
           echo "=========================================="
           echo "INSTALAÇÃO CONCLUÍDA"
           echo "=========================================="
 
-          ffmpeg -version | head -n 1
+      # ======================================================
+      # 3. VERIFICAR PROGRAMAS
+      # ======================================================
 
-          chromium --version
-
-          pulseaudio --version
-
-          cloudflared --version
-
-          python3 --version
-
-
-      - name: Verificar arquivos
+      - name: Verificar sistema
         shell: bash
         run: |
-
-          set -e
+          set -eux
 
           echo "=========================================="
-          echo "VERIFICANDO ARQUIVOS"
+          echo "VERIFICANDO SISTEMA"
           echo "=========================================="
 
-          test -f app.py
+          echo "FFmpeg:"
+          ffmpeg -version | head -n 1
+
+          echo "Chromium:"
+          chromium --version
+
+          echo "PulseAudio:"
+          pulseaudio --version
+
+          echo "Xvfb:"
+          Xvfb -version || true
+
+          echo "SSH:"
+          ssh -V
+
+          echo "Python:"
+          python3 --version
+
+          echo "=========================================="
+          echo "SISTEMA OK"
+          echo "=========================================="
+
+      # ======================================================
+      # 4. VERIFICAR ARQUIVOS
+      # ======================================================
+
+      - name: Verificar arquivos da transmissão
+        shell: bash
+        run: |
+          set -eux
+
+          echo "=========================================="
+          echo "ARQUIVOS DO PROJETO"
+          echo "=========================================="
+
+          pwd
+          ls -lah
+
+          if [ ! -f "app.py" ]; then
+            echo "ERRO: app.py não encontrado."
+            exit 1
+          fi
 
           echo "app.py encontrado."
 
-          echo "Arquivos do projeto:"
-
-          ls -la
-
+      # ======================================================
+      # 5. INICIAR WEBTV
+      # ======================================================
 
       - name: Iniciar transmissão
         shell: bash
         env:
-
           DISPLAY: ":99"
-
           PULSE_SINK: "webtv"
-
           PYTHONUNBUFFERED: "1"
-
         run: |
-
           set +e
 
           echo "=========================================="
@@ -119,25 +134,24 @@ jobs:
 
           python3 -u app.py
 
-          CODE=$?
+          EXIT_CODE=$?
 
           echo "=========================================="
           echo "WEBTV FINALIZADA"
-          echo "Código: $CODE"
+          echo "Código: $EXIT_CODE"
           echo "=========================================="
 
-          exit $CODE
+          exit $EXIT_CODE
 
+      # ======================================================
+      # 6. SALVAR LOGS
+      # ======================================================
 
       - name: Salvar diagnósticos
         if: always()
-
         uses: actions/upload-artifact@v4
-
         with:
-
           name: webtv-debug
-
-          path: stream/
-
+          path: |
+            stream/
           if-no-files-found: ignore
