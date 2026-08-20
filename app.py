@@ -9,8 +9,7 @@ import shutil
 import threading
 import subprocess
 from pathlib import Path
-from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-
+from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 # ============================================================
 # CONFIGURAÇÃO
@@ -20,7 +19,6 @@ HOST = "0.0.0.0"
 PORT = 8080
 
 DISPLAY = ":99"
-
 WIDTH = 1280
 HEIGHT = 720
 FPS = 30
@@ -32,9 +30,9 @@ PAGE_URL = (
     ".us-east5.run.app/watch"
 )
 
-CLOUDFLARED = "cloudflared"
-
-stop_event = threading.Event()
+# ============================================================
+# PROCESSOS
+# ============================================================
 
 xvfb = None
 pulse = None
@@ -43,10 +41,8 @@ ffmpeg = None
 tunnel = None
 http_server = None
 
+stop_event = threading.Event()
 tunnel_url = None
-
-state_lock = threading.Lock()
-
 
 # ============================================================
 # LOG
@@ -61,7 +57,7 @@ def line():
 
 
 # ============================================================
-# PROCESSOS
+# ENCERRAMENTO
 # ============================================================
 
 def stop_process(process, name):
@@ -70,22 +66,16 @@ def stop_process(process, name):
 
     try:
         if process.poll() is None:
-
             log(f"[STOP] Parando {name}...")
 
-            try:
-                process.terminate()
-            except Exception:
-                pass
+            process.terminate()
 
             try:
                 process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
 
-                try:
-                    process.kill()
-                except Exception:
-                    pass
+            except subprocess.TimeoutExpired:
+                log(f"[STOP] Forçando encerramento de {name}...")
+                process.kill()
 
                 try:
                     process.wait(timeout=3)
@@ -93,37 +83,28 @@ def stop_process(process, name):
                     pass
 
     except Exception as e:
-        log(f"[STOP] Erro em {name}: {e}")
+        log(f"[STOP] Erro ao parar {name}: {e}")
 
 
 def cleanup():
     global http_server
-
-    if stop_event.is_set():
-        pass
 
     stop_event.set()
 
     line()
     log("ENCERRANDO WEBTV")
 
-    stop_process(ffmpeg, "FFmpeg")
-    stop_process(chromium, "Chromium")
-    stop_process(tunnel, "Cloudflare Tunnel")
-    stop_process(pulse, "PulseAudio")
-    stop_process(xvfb, "Xvfb")
-
-    if http_server is not None:
-
+    if http_server:
         try:
             http_server.shutdown()
         except Exception:
             pass
 
-        try:
-            http_server.server_close()
-        except Exception:
-            pass
+    stop_process(ffmpeg, "FFmpeg")
+    stop_process(chromium, "Chromium")
+    stop_process(tunnel, "localhost.run")
+    stop_process(pulse, "PulseAudio")
+    stop_process(xvfb, "Xvfb")
 
     log("WEBTV FINALIZADA")
 
@@ -138,46 +119,14 @@ signal.signal(signal.SIGTERM, signal_handler)
 
 
 # ============================================================
-# UTILITÁRIOS
-# ============================================================
-
-def command_exists(command):
-    return shutil.which(command) is not None
-
-
-def run_command(command, timeout=30, env=None):
-
-    try:
-
-        result = subprocess.run(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=timeout,
-            env=env
-        )
-
-        return result
-
-    except Exception as e:
-
-        log(
-            "[CMD] Erro executando "
-            + " ".join(command)
-            + ": "
-            + str(e)
-        )
-
-        return None
-
-
-# ============================================================
 # DEPENDÊNCIAS
 # ============================================================
 
-def check_dependencies():
+def check_command(name):
+    return shutil.which(name) is not None
 
+
+def check_dependencies():
     line()
     log("VERIFICANDO DEPENDÊNCIAS")
 
@@ -187,40 +136,31 @@ def check_dependencies():
         "pactl",
         "ffmpeg",
         "ssh",
-        "cloudflared",
+    ]
+
+    optional = [
+        "xdotool",
     ]
 
     missing = []
 
     for command in required:
-
-        if not command_exists(command):
+        if not check_command(command):
             missing.append(command)
 
-    browser_found = False
-
-    for browser in [
-        "chromium",
-        "chromium-browser",
-        "google-chrome",
-        "google-chrome-stable",
-    ]:
-
-        if command_exists(browser):
-            browser_found = True
-            break
-
-    if not browser_found:
-        missing.append("chromium")
-
     if missing:
-
         raise RuntimeError(
             "Programas ausentes: "
             + ", ".join(missing)
         )
 
-    log("Todas as dependências estão instaladas.")
+    for command in optional:
+        if not check_command(command):
+            log(
+                f"[AVISO] {command} não encontrado."
+            )
+
+    log("Dependências OK.")
 
 
 # ============================================================
@@ -228,7 +168,6 @@ def check_dependencies():
 # ============================================================
 
 def clean_stream():
-
     line()
     log("[1] Limpando stream antigo...")
 
@@ -238,7 +177,6 @@ def clean_stream():
     )
 
     for item in STREAM_DIR.iterdir():
-
         try:
 
             if item.is_file():
@@ -248,12 +186,9 @@ def clean_stream():
                 shutil.rmtree(item)
 
         except Exception as e:
-
             log(
-                "[AVISO] Não foi possível remover "
-                + str(item)
-                + ": "
-                + str(e)
+                f"[AVISO] Não foi possível remover "
+                f"{item}: {e}"
             )
 
 
@@ -262,11 +197,12 @@ def clean_stream():
 # ============================================================
 
 def start_xvfb():
-
     global xvfb
 
     line()
-    log("[2] INICIANDO XVFB")
+    log("[2] Iniciando Xvfb...")
+    log(f"DISPLAY: {DISPLAY}")
+    log(f"RESOLUÇÃO: {WIDTH}x{HEIGHT}")
 
     env = os.environ.copy()
     env["DISPLAY"] = DISPLAY
@@ -291,12 +227,11 @@ def start_xvfb():
     time.sleep(2)
 
     if xvfb.poll() is not None:
-
         raise RuntimeError(
-            "Xvfb encerrou durante a inicialização."
+            "Xvfb não conseguiu iniciar."
         )
 
-    log("Xvfb funcionando.")
+    log("Xvfb pronto.")
 
 
 # ============================================================
@@ -304,49 +239,53 @@ def start_xvfb():
 # ============================================================
 
 def start_pulseaudio():
-
     global pulse
 
     line()
-    log("[3] INICIANDO PULSEAUDIO")
+    log("[3] Iniciando PulseAudio...")
+    log("Criando sink virtual webtv...")
 
     env = os.environ.copy()
     env["DISPLAY"] = DISPLAY
 
-    run_command(
+    subprocess.run(
         ["pulseaudio", "--kill"],
-        timeout=10
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
     )
 
     time.sleep(1)
 
-    result = run_command(
+    result = subprocess.run(
         [
             "pulseaudio",
             "--start",
-            "--exit-idle-time=-1"
+            "--exit-idle-time=-1",
         ],
-        timeout=20,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
         env=env
     )
 
+    if result.returncode != 0:
+        log("[AVISO] PulseAudio retornou código diferente de zero.")
+
     time.sleep(3)
 
-    sinks = run_command(
+    sinks = subprocess.run(
         [
             "pactl",
             "list",
             "short",
             "sinks"
         ],
-        timeout=10
+        capture_output=True,
+        text=True
     )
 
-    if sinks is None or "webtv" not in sinks.stdout:
+    if "webtv" not in sinks.stdout:
 
-        log("[AUDIO] Criando sink webtv...")
-
-        result = run_command(
+        result = subprocess.run(
             [
                 "pactl",
                 "load-module",
@@ -354,338 +293,90 @@ def start_pulseaudio():
                 "sink_name=webtv",
                 "sink_properties=device.description=WebTV"
             ],
-            timeout=15
+            capture_output=True,
+            text=True
         )
 
-        if result is not None and result.returncode != 0:
+        if result.returncode != 0:
+            log("[ERRO] Não foi possível criar sink webtv.")
+            log(result.stderr.strip())
 
-            log(
-                "[AUDIO] Erro ao criar sink:"
-            )
-
-            log(
-                result.stderr.strip()
+            raise RuntimeError(
+                "Falha ao criar sink PulseAudio webtv."
             )
 
     time.sleep(2)
 
-    sources = run_command(
+    # Define webtv como sink padrão.
+    subprocess.run(
+        [
+            "pactl",
+            "set-default-sink",
+            "webtv"
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+
+    sources = subprocess.run(
         [
             "pactl",
             "list",
             "short",
             "sources"
         ],
-        timeout=10
+        capture_output=True,
+        text=True
     )
 
-    if sources is not None:
+    log("Fontes de áudio:")
 
-        log("[AUDIO] Fontes:")
+    if sources.stdout.strip():
+        log(sources.stdout.strip())
+    else:
+        log("[AVISO] Nenhuma fonte de áudio encontrada.")
 
-        if sources.stdout.strip():
-            log(sources.stdout.strip())
-        else:
-            log("[AUDIO] Nenhuma fonte encontrada.")
-
-    monitor = run_command(
+    monitor_check = subprocess.run(
         [
             "pactl",
             "get-source-volume",
             "webtv.monitor"
         ],
-        timeout=10
+        capture_output=True,
+        text=True
     )
 
-    if monitor is not None and monitor.returncode == 0:
-
-        log("[AUDIO] webtv.monitor OK.")
+    if monitor_check.returncode == 0:
+        log("webtv.monitor encontrado.")
 
     else:
-
         raise RuntimeError(
-            "webtv.monitor não foi criado."
+            "webtv.monitor não foi encontrado."
         )
 
     log("Áudio pronto.")
 
 
 # ============================================================
-# HTTP
+# SERVIDOR HTTP
 # ============================================================
 
-HTML_PAGE = r"""<!DOCTYPE html>
-<html lang="pt-BR">
-
-<head>
-
-<meta charset="UTF-8">
-
-<meta name="viewport"
-      content="width=device-width,initial-scale=1">
-
-<title>WEBTV</title>
-
-<style>
-
-html,
-body {
-
-    width: 100%;
-    height: 100%;
-
-    margin: 0;
-    padding: 0;
-
-    background: #000;
-
-    overflow: hidden;
-}
-
-video {
-
-    width: 100%;
-    height: 100%;
-
-    object-fit: contain;
-
-    background: #000;
-}
-
-#status {
-
-    position: fixed;
-
-    left: 10px;
-    bottom: 10px;
-
-    padding: 6px 10px;
-
-    background: rgba(0,0,0,.65);
-
-    color: white;
-
-    font-family: Arial, sans-serif;
-
-    font-size: 13px;
-
-    border-radius: 4px;
-
-    z-index: 10;
-}
-
-</style>
-
-</head>
-
-<body>
-
-<video
-    id="player"
-    autoplay
-    muted
-    playsinline
-    controls>
-</video>
-
-<div id="status">
-    Conectando...
-</div>
-
-<script>
-
-const video = document.getElementById("player");
-const status = document.getElementById("status");
-
-let hls = null;
-
-function statusText(text) {
-    status.textContent = text;
-}
-
-function startPlayer() {
-
-    const source = "/live.m3u8?v=" + Date.now();
-
-    if (video.canPlayType("application/vnd.apple.mpegurl")) {
-
-        video.src = source;
-
-        video.play().catch(() => {});
-
-        statusText("Transmissão ativa");
-
-        return;
-    }
-
-    const script = document.createElement("script");
-
-    script.src =
-        "https://cdn.jsdelivr.net/npm/hls.js@latest";
-
-    script.onload = function() {
-
-        if (!window.Hls) {
-
-            statusText("HLS.js indisponível");
-
-            setTimeout(startPlayer, 3000);
-
-            return;
-        }
-
-        hls = new Hls({
-
-            liveSyncDurationCount: 3,
-
-            liveMaxLatencyDurationCount: 6,
-
-            maxLiveSyncPlaybackRate: 1.2,
-
-            enableWorker: true,
-
-            lowLatencyMode: false,
-
-            backBufferLength: 30
-        });
-
-        hls.loadSource(source);
-
-        hls.attachMedia(video);
-
-        hls.on(
-            Hls.Events.MANIFEST_PARSED,
-            function() {
-
-                statusText(
-                    "Transmissão ativa"
-                );
-
-                video.play().catch(() => {});
-            }
-        );
-
-        hls.on(
-            Hls.Events.ERROR,
-            function(event, data) {
-
-                if (!data.fatal) {
-                    return;
-                }
-
-                statusText(
-                    "Reconectando..."
-                );
-
-                if (
-                    data.type ===
-                    Hls.ErrorTypes.NETWORK_ERROR
-                ) {
-
-                    hls.startLoad();
-
-                } else if (
-                    data.type ===
-                    Hls.ErrorTypes.MEDIA_ERROR
-                ) {
-
-                    hls.recoverMediaError();
-
-                } else {
-
-                    try {
-                        hls.destroy();
-                    } catch (e) {}
-
-                    hls = null;
-
-                    setTimeout(
-                        startPlayer,
-                        2000
-                    );
-                }
-            }
-        );
-    };
-
-    script.onerror = function() {
-
-        statusText(
-            "Falha ao carregar HLS.js"
-        );
-
-        setTimeout(
-            startPlayer,
-            3000
-        );
-    };
-
-    document.head.appendChild(script);
-}
-
-startPlayer();
-
-setInterval(
-    function() {
-
-        fetch(
-            "/health",
-            {
-                cache: "no-store"
-            }
+class StreamHandler(SimpleHTTPRequestHandler):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(
+            *args,
+            directory=str(STREAM_DIR),
+            **kwargs
         )
-        .then(
-            function(response) {
-
-                if (response.ok) {
-
-                    if (
-                        status.textContent ===
-                        "Reconectando..."
-                    ) {
-
-                        statusText(
-                            "Transmissão ativa"
-                        );
-                    }
-                }
-            }
-        )
-        .catch(
-            function() {
-                statusText(
-                    "Servidor reconectando..."
-                );
-            }
-        );
-
-    },
-    10000
-);
-
-</script>
-
-</body>
-</html>
-"""
-
-
-class StreamHandler(BaseHTTPRequestHandler):
-
-    protocol_version = "HTTP/1.1"
 
     def log_message(self, format, *args):
-
         log(
             "[HTTP] "
-            + format % args
+            + (format % args)
         )
 
-    def send_common_headers(
-        self,
-        content_type,
-        content_length=None
-    ):
+    def end_headers(self):
 
         self.send_header(
             "Cache-Control",
@@ -712,282 +403,327 @@ class StreamHandler(BaseHTTPRequestHandler):
             "*"
         )
 
-        self.send_header(
-            "Connection",
-            "close"
-        )
-
-        self.send_header(
-            "Content-Type",
-            content_type
-        )
-
-        if content_length is not None:
-
-            self.send_header(
-                "Content-Length",
-                str(content_length)
-            )
-
-    def send_bytes(
-        self,
-        data,
-        content_type,
-        status=200
-    ):
-
-        try:
-
-            self.send_response(status)
-
-            self.send_common_headers(
-                content_type,
-                len(data)
-            )
-
-            self.end_headers()
-
-            self.wfile.write(data)
-
-            self.wfile.flush()
-
-        except (
-            BrokenPipeError,
-            ConnectionResetError,
-            ConnectionAbortedError
-        ):
-
-            pass
-
-        except Exception as e:
-
-            log(
-                "[HTTP] Erro enviando resposta: "
-                + str(e)
-            )
-
-    def do_OPTIONS(self):
-
-        try:
-
-            self.send_response(204)
-
-            self.send_common_headers(
-                "text/plain",
-                0
-            )
-
-            self.end_headers()
-
-        except Exception:
-            pass
+        super().end_headers()
 
     def do_GET(self):
 
         path = self.path.split("?", 1)[0]
 
-        # ----------------------------------------------------
-        # HEALTH
-        # ----------------------------------------------------
-
-        if path == "/health":
-
-            playlist = STREAM_DIR / "live.m3u8"
-
-            ok = (
-                ffmpeg is not None
-                and ffmpeg.poll() is None
-                and playlist.exists()
-            )
-
-            data = (
-                b"OK\n"
-                if ok
-                else b"STARTING\n"
-            )
-
-            self.send_bytes(
-                data,
-                "text/plain; charset=utf-8",
-                200 if ok else 503
-            )
-
-            return
-
-        # ----------------------------------------------------
-        # STATUS
-        # ----------------------------------------------------
-
-        if path == "/status":
-
-            playlist = STREAM_DIR / "live.m3u8"
-
-            status = {
-                "ffmpeg": (
-                    ffmpeg is not None
-                    and ffmpeg.poll() is None
-                ),
-                "chromium": (
-                    chromium is not None
-                    and chromium.poll() is None
-                ),
-                "hls": playlist.exists(),
-                "tunnel": tunnel_url or ""
-            }
-
-            text = (
-                "FFmpeg: "
-                + str(status["ffmpeg"])
-                + "\n"
-                + "Chromium: "
-                + str(status["chromium"])
-                + "\n"
-                + "HLS: "
-                + str(status["hls"])
-                + "\n"
-                + "Tunnel: "
-                + status["tunnel"]
-                + "\n"
-            )
-
-            self.send_bytes(
-                text.encode(),
-                "text/plain; charset=utf-8"
-            )
-
-            return
-
-        # ----------------------------------------------------
-        # PÁGINA
-        # ----------------------------------------------------
+        # ====================================================
+        # PLAYER
+        # ====================================================
 
         if path == "/":
 
-            self.send_bytes(
-                HTML_PAGE.encode("utf-8"),
+            html = """<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport"
+      content="width=device-width,initial-scale=1">
+
+<title>WEBTV STREAM</title>
+
+<style>
+
+html,
+body {
+
+    width: 100%;
+    height: 100%;
+
+    margin: 0;
+    padding: 0;
+
+    background: #000;
+
+    overflow: hidden;
+
+}
+
+video {
+
+    width: 100%;
+    height: 100%;
+
+    object-fit: contain;
+
+    background: #000;
+
+}
+
+</style>
+
+</head>
+
+<body>
+
+<video
+    id="player"
+    controls
+    autoplay
+    muted
+    playsinline
+    preload="auto">
+</video>
+
+<script>
+
+const video = document.getElementById("player");
+
+let hls = null;
+
+function startPlayer() {
+
+    const source = "/live.m3u8";
+
+    /*
+     * Chrome/Chromium normalmente usa HLS
+     * através do hls.js.
+     */
+
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+
+        video.src = source;
+
+        video.play().catch(() => {});
+
+        return;
+    }
+
+    const script = document.createElement("script");
+
+    script.src =
+        "https://cdn.jsdelivr.net/npm/hls.js@1.5.20/dist/hls.min.js";
+
+    script.onload = function() {
+
+        if (!window.Hls || !Hls.isSupported()) {
+
+            console.error("HLS não suportado.");
+
+            return;
+        }
+
+        hls = new Hls({
+
+            /*
+             * Mantém o player próximo do live edge
+             * sem tentar fazer aceleração excessiva.
+             */
+
+            liveSyncDurationCount: 2,
+
+            liveMaxLatencyDurationCount: 5,
+
+            maxLiveSyncPlaybackRate: 1.15,
+
+            lowLatencyMode: false,
+
+            backBufferLength: 20,
+
+            maxBufferLength: 10,
+
+            maxMaxBufferLength: 15,
+
+            enableWorker: true,
+
+            capLevelToPlayerSize: true
+
+        });
+
+        hls.loadSource(source);
+
+        hls.attachMedia(video);
+
+        hls.on(
+            Hls.Events.MANIFEST_PARSED,
+            function() {
+
+                video.play().catch(() => {});
+
+            }
+        );
+
+        hls.on(
+            Hls.Events.ERROR,
+            function(event, data) {
+
+                if (!data.fatal) {
+                    return;
+                }
+
+                console.log(
+                    "Erro HLS:",
+                    data.type
+                );
+
+                if (
+                    data.type ===
+                    Hls.ErrorTypes.NETWORK_ERROR
+                ) {
+
+                    setTimeout(
+                        function() {
+
+                            if (hls) {
+                                hls.startLoad();
+                            }
+
+                        },
+                        1000
+                    );
+
+                }
+
+                else if (
+                    data.type ===
+                    Hls.ErrorTypes.MEDIA_ERROR
+                ) {
+
+                    try {
+
+                        hls.recoverMediaError();
+
+                    } catch (e) {
+
+                        location.reload();
+
+                    }
+
+                }
+
+                else {
+
+                    location.reload();
+
+                }
+
+            }
+        );
+
+    };
+
+    script.onerror = function() {
+
+        console.error(
+            "Não foi possível carregar hls.js."
+        );
+
+    };
+
+    document.head.appendChild(script);
+}
+
+startPlayer();
+
+</script>
+
+</body>
+
+</html>
+"""
+
+            data = html.encode("utf-8")
+
+            self.send_response(200)
+
+            self.send_header(
+                "Content-Type",
                 "text/html; charset=utf-8"
             )
 
-            return
-
-        # ----------------------------------------------------
-        # HLS
-        # ----------------------------------------------------
-
-        if path == "/live.m3u8":
-
-            playlist = STREAM_DIR / "live.m3u8"
-
-            if not playlist.exists():
-
-                self.send_bytes(
-                    b"#EXTM3U\n",
-                    "application/vnd.apple.mpegurl",
-                    503
-                )
-
-                return
-
-            try:
-
-                data = playlist.read_bytes()
-
-                self.send_bytes(
-                    data,
-                    "application/vnd.apple.mpegurl"
-                )
-
-            except Exception as e:
-
-                log(
-                    "[HTTP] Erro lendo playlist: "
-                    + str(e)
-                )
-
-            return
-
-        # ----------------------------------------------------
-        # SEGMENTOS TS
-        # ----------------------------------------------------
-
-        if path.startswith("/segment_") and path.endswith(".ts"):
-
-            filename = Path(
-                path.lstrip("/")
-            ).name
-
-            if not re.fullmatch(
-                r"segment_\d+\.ts",
-                filename
-            ):
-
-                self.send_bytes(
-                    b"Not Found",
-                    "text/plain",
-                    404
-                )
-
-                return
-
-            file_path = (
-                STREAM_DIR
-                / filename
+            self.send_header(
+                "Content-Length",
+                str(len(data))
             )
 
-            if not file_path.exists():
+            self.end_headers()
 
-                self.send_bytes(
-                    b"Not Found",
-                    "text/plain",
-                    404
-                )
+            try:
+                self.wfile.write(data)
 
-                return
+            except BrokenPipeError:
+                pass
+
+            return
+
+        # ====================================================
+        # HLS
+        # ====================================================
+
+        if path.endswith(".m3u8"):
+
+            self.send_response(200)
+
+            self.send_header(
+                "Content-Type",
+                "application/vnd.apple.mpegurl"
+            )
+
+            self.send_header(
+                "Cache-Control",
+                "no-cache, no-store, must-revalidate"
+            )
+
+            self.end_headers()
 
             try:
 
-                data = file_path.read_bytes()
+                file_path = STREAM_DIR / path.lstrip("/")
 
-                self.send_bytes(
-                    data,
-                    "video/mp2t"
-                )
+                if not file_path.exists():
+                    return
+
+                with open(
+                    file_path,
+                    "rb"
+                ) as file:
+
+                    self.wfile.write(
+                        file.read()
+                    )
 
             except (
                 BrokenPipeError,
                 ConnectionResetError
             ):
-
                 pass
 
-            except Exception as e:
+            return
 
-                log(
-                    "[HTTP] Erro lendo segmento: "
-                    + str(e)
-                )
+        # ====================================================
+        # SEGMENTOS TS
+        # ====================================================
+
+        if path.endswith(".ts"):
+
+            try:
+                super().do_GET()
+
+            except (
+                BrokenPipeError,
+                ConnectionResetError
+            ):
+                pass
 
             return
 
-        # ----------------------------------------------------
-        # FAVICON
-        # ----------------------------------------------------
+        # ====================================================
+        # OUTROS
+        # ====================================================
 
-        if path == "/favicon.ico":
+        try:
+            super().do_GET()
 
-            self.send_bytes(
-                b"",
-                "image/x-icon",
-                204
-            )
-
-            return
-
-        self.send_bytes(
-            b"Not Found",
-            "text/plain; charset=utf-8",
-            404
-        )
+        except (
+            BrokenPipeError,
+            ConnectionResetError
+        ):
+            pass
 
 
 def start_http():
@@ -995,7 +731,7 @@ def start_http():
     global http_server
 
     line()
-    log("[4] INICIANDO SERVIDOR HTTP")
+    log("[4] Iniciando servidor HTTP...")
 
     http_server = ThreadingHTTPServer(
         (HOST, PORT),
@@ -1011,42 +747,27 @@ def start_http():
 
     thread.start()
 
-    # Teste local.
-    for attempt in range(1, 11):
+    time.sleep(1)
 
-        result = run_command(
-            [
-                "curl",
-                "-fsS",
-                "--max-time",
-                "3",
-                f"http://127.0.0.1:{PORT}/health"
-            ],
-            timeout=5
+    # Teste local
+    test = subprocess.run(
+        [
+            "curl",
+            "-fsS",
+            f"http://127.0.0.1:{PORT}/"
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+
+    if test.returncode != 0:
+
+        raise RuntimeError(
+            "Servidor HTTP local não respondeu."
         )
 
-        if result is not None:
-
-            if (
-                result.returncode == 0
-                or result.returncode == 22
-            ):
-
-                log(
-                    f"Servidor HTTP ativo na porta {PORT}."
-                )
-
-                return
-
-        log(
-            f"[HTTP] Aguardando servidor... "
-            f"{attempt}/10"
-        )
-
-        time.sleep(1)
-
-    raise RuntimeError(
-        "Servidor HTTP local não respondeu."
+    log(
+        f"Servidor HTTP ativo na porta {PORT}"
     )
 
 
@@ -1056,12 +777,14 @@ def start_http():
 
 def find_browser():
 
-    for browser in [
+    browsers = [
         "chromium",
         "chromium-browser",
         "google-chrome",
         "google-chrome-stable"
-    ]:
+    ]
+
+    for browser in browsers:
 
         path = shutil.which(browser)
 
@@ -1069,7 +792,7 @@ def find_browser():
             return path
 
     raise RuntimeError(
-        "Chromium não encontrado."
+        "Chromium/Google Chrome não encontrado."
     )
 
 
@@ -1078,14 +801,12 @@ def start_chromium():
     global chromium
 
     line()
-    log("[5] INICIANDO CHROMIUM")
+    log("[5] Iniciando Chromium...")
 
     browser = find_browser()
 
     env = os.environ.copy()
-
     env["DISPLAY"] = DISPLAY
-
     env["PULSE_SINK"] = "webtv"
 
     profile = Path(
@@ -1096,6 +817,7 @@ def start_chromium():
 
         try:
             shutil.rmtree(profile)
+
         except Exception:
             pass
 
@@ -1118,6 +840,8 @@ def start_chromium():
 
         "--disable-software-rasterizer",
 
+        "--autoplay-policy=no-user-gesture-required",
+
         "--disable-background-networking",
 
         "--disable-background-timer-throttling",
@@ -1126,15 +850,11 @@ def start_chromium():
 
         "--disable-backgrounding-occluded-windows",
 
-        "--disable-features=CalculateNativeWinOcclusion",
-
         "--disable-notifications",
 
         "--disable-infobars",
 
         "--disable-popup-blocking",
-
-        "--autoplay-policy=no-user-gesture-required",
 
         "--start-fullscreen",
 
@@ -1154,20 +874,12 @@ def start_chromium():
     log(PAGE_URL)
 
     chromium = subprocess.Popen(
-
         command,
-
-        stdin=subprocess.DEVNULL,
-
+        env=env,
         stdout=subprocess.DEVNULL,
-
         stderr=subprocess.PIPE,
-
         text=True,
-
-        bufsize=1,
-
-        env=env
+        bufsize=1
     )
 
     time.sleep(6)
@@ -1181,7 +893,7 @@ def start_chromium():
     log("Chromium iniciado.")
     log("Página carregada.")
 
-    def read_logs():
+    def chromium_logs():
 
         try:
 
@@ -1190,7 +902,6 @@ def start_chromium():
                 text = text.strip()
 
                 if text:
-
                     log(
                         "[CHROMIUM] "
                         + text
@@ -1200,34 +911,31 @@ def start_chromium():
             pass
 
     threading.Thread(
-        target=read_logs,
+        target=chromium_logs,
         daemon=True
     ).start()
 
 
 # ============================================================
-# FULLSCREEN
+# TELA CHEIA
 # ============================================================
 
 def fullscreen():
 
     line()
-    log("[TELA] Ativando tela cheia...")
+    log("[TELA] Ativando tela cheia do Chromium")
 
-    if not command_exists("xdotool"):
+    if not shutil.which("xdotool"):
 
         log(
-            "[TELA] xdotool não encontrado."
+            "[AVISO] xdotool não instalado."
         )
 
         return
 
-    time.sleep(2)
-
     try:
 
         result = subprocess.run(
-
             [
                 "xdotool",
                 "search",
@@ -1235,24 +943,19 @@ def fullscreen():
                 "--class",
                 "chromium"
             ],
-
             capture_output=True,
-
             text=True,
-
             timeout=10
         )
 
-        windows = [
-            x.strip()
-            for x in result.stdout.splitlines()
-            if x.strip()
-        ]
+        windows = (
+            result.stdout.strip().splitlines()
+        )
 
         if not windows:
 
             log(
-                "[TELA] Janela Chromium não encontrada."
+                "[AVISO] Janela Chromium não encontrada."
             )
 
             return
@@ -1260,21 +963,17 @@ def fullscreen():
         window = windows[-1]
 
         subprocess.run(
-
             [
                 "xdotool",
                 "windowactivate",
                 "--sync",
                 window
             ],
-
             stdout=subprocess.DEVNULL,
-
             stderr=subprocess.DEVNULL
         )
 
         subprocess.run(
-
             [
                 "xdotool",
                 "key",
@@ -1282,9 +981,7 @@ def fullscreen():
                 window,
                 "F11"
             ],
-
             stdout=subprocess.DEVNULL,
-
             stderr=subprocess.DEVNULL
         )
 
@@ -1295,7 +992,7 @@ def fullscreen():
     except Exception as e:
 
         log(
-            "[TELA] Erro: "
+            "[AVISO] Falha no fullscreen: "
             + str(e)
         )
 
@@ -1309,49 +1006,48 @@ def test_x11():
     line()
     log("[DIAGNÓSTICO] Testando X11...")
 
-    # O ImageMagick pode não existir.
-    if not command_exists("import"):
+    output = STREAM_DIR / "debug_screen.png"
 
-        log(
-            "[DIAGNÓSTICO] ImageMagick não instalado."
+    try:
+
+        result = subprocess.run(
+            [
+                "import",
+                "-display",
+                DISPLAY,
+                "-window",
+                "root",
+                str(output)
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15
         )
 
-        return True
+        if (
+            result.returncode == 0
+            and output.exists()
+        ):
 
-    output = (
-        STREAM_DIR
-        / "debug_screen.png"
-    )
+            log(
+                "[DIAGNÓSTICO] Captura X11 OK."
+            )
 
-    result = run_command(
-
-        [
-            "import",
-            "-display",
-            DISPLAY,
-            "-window",
-            "root",
-            str(output)
-        ],
-
-        timeout=15
-    )
-
-    if (
-        result is not None
-        and result.returncode == 0
-        and output.exists()
-    ):
+            return True
 
         log(
-            "[DIAGNÓSTICO] Captura X11 OK."
+            "[DIAGNÓSTICO] Falha na captura X11."
         )
 
-        return True
+        if result.stderr:
+            log(result.stderr.strip())
 
-    log(
-        "[DIAGNÓSTICO] Não foi possível capturar X11."
-    )
+    except Exception as e:
+
+        log(
+            "[DIAGNÓSTICO] Erro: "
+            + str(e)
+        )
 
     return False
 
@@ -1360,63 +1056,41 @@ def test_x11():
 # FFMPEG
 # ============================================================
 
-def remove_old_hls():
+def start_ffmpeg():
 
-    playlist = (
-        STREAM_DIR
-        / "live.m3u8"
-    )
+    global ffmpeg
+
+    line()
+    log("INICIANDO FFMPEG")
+
+    playlist = STREAM_DIR / "live.m3u8"
 
     try:
         playlist.unlink()
     except FileNotFoundError:
         pass
 
-    for file in STREAM_DIR.glob(
-        "segment_*.ts"
-    ):
+    for file in STREAM_DIR.glob("segment_*.ts"):
 
         try:
             file.unlink()
         except Exception:
             pass
 
-
-def start_ffmpeg():
-
-    global ffmpeg
-
-    line()
-    log("[6] INICIANDO FFMPEG")
-
-    remove_old_hls()
-
-    playlist = (
-        STREAM_DIR
-        / "live.m3u8"
-    )
-
-    segment_pattern = (
-        STREAM_DIR
-        / "segment_%05d.ts"
-    )
-
     command = [
 
         "ffmpeg",
+
+        "-y",
 
         "-hide_banner",
 
         "-loglevel",
         "warning",
 
-        "-nostdin",
-
-        "-y",
-
-        # ----------------------------------------------------
-        # VÍDEO X11
-        # ----------------------------------------------------
+        # ====================================================
+        # VÍDEO
+        # ====================================================
 
         "-thread_queue_size",
         "4096",
@@ -1433,12 +1107,15 @@ def start_ffmpeg():
         "-video_size",
         f"{WIDTH}x{HEIGHT}",
 
+        "-use_wallclock_as_timestamps",
+        "1",
+
         "-i",
         f"{DISPLAY}.0",
 
-        # ----------------------------------------------------
+        # ====================================================
         # ÁUDIO
-        # ----------------------------------------------------
+        # ====================================================
 
         "-thread_queue_size",
         "4096",
@@ -1446,15 +1123,25 @@ def start_ffmpeg():
         "-f",
         "pulse",
 
+        "-use_wallclock_as_timestamps",
+        "1",
+
         "-i",
         "webtv.monitor",
 
-        # ----------------------------------------------------
-        # VÍDEO
-        # ----------------------------------------------------
+        # ====================================================
+        # MAPA
+        # ====================================================
 
         "-map",
         "0:v:0",
+
+        "-map",
+        "1:a:0",
+
+        # ====================================================
+        # VÍDEO
+        # ====================================================
 
         "-c:v",
         "libx264",
@@ -1489,28 +1176,30 @@ def start_ffmpeg():
         "-bufsize",
         "3000k",
 
-        # ----------------------------------------------------
-        # ÁUDIO
-        # ----------------------------------------------------
-
-        "-map",
-        "1:a:0",
+        # ====================================================
+        # ÁUDIO SINCRONIZADO
+        # ====================================================
 
         "-c:a",
         "aac",
 
         "-b:a",
-        "96k",
+        "128k",
 
         "-ar",
-        "44100",
+        "48000",
 
         "-ac",
         "2",
 
-        # ----------------------------------------------------
+        # Corrige drift e pequenas diferenças
+        # entre o relógio do áudio e vídeo.
+        "-af",
+        "aresample=async=1:min_hard_comp=0.100:first_pts=0",
+
+        # ====================================================
         # HLS
-        # ----------------------------------------------------
+        # ====================================================
 
         "-f",
         "hls",
@@ -1525,31 +1214,29 @@ def start_ffmpeg():
         "delete_segments+append_list+independent_segments",
 
         "-hls_segment_filename",
-        str(segment_pattern),
+        str(
+            STREAM_DIR /
+            "segment_%05d.ts"
+        ),
 
         str(playlist)
     ]
 
-    log("FFmpeg configurado.")
+    log("Comando FFmpeg:")
+    log(" ".join(command))
 
     env = os.environ.copy()
 
     env["DISPLAY"] = DISPLAY
 
+    env["PULSE_SINK"] = "webtv"
+
     ffmpeg = subprocess.Popen(
-
         command,
-
-        stdin=subprocess.DEVNULL,
-
         stdout=subprocess.PIPE,
-
         stderr=subprocess.STDOUT,
-
         text=True,
-
         bufsize=1,
-
         env=env
     )
 
@@ -1562,7 +1249,6 @@ def start_ffmpeg():
                 text = text.strip()
 
                 if text:
-
                     log(
                         "[FFMPEG] "
                         + text
@@ -1581,41 +1267,31 @@ def start_ffmpeg():
     if ffmpeg.poll() is not None:
 
         raise RuntimeError(
-            "FFmpeg encerrou durante a inicialização."
+            "FFmpeg encerrou imediatamente."
         )
 
     log("FFmpeg funcionando.")
+    log("Sincronização de áudio/vídeo ativada.")
 
 
 # ============================================================
 # HLS
 # ============================================================
 
-def wait_hls(timeout=60):
+def wait_hls(timeout=45):
 
     line()
     log("[HLS] Aguardando playlist...")
 
-    playlist = (
-        STREAM_DIR
-        / "live.m3u8"
-    )
+    playlist = STREAM_DIR / "live.m3u8"
 
-    started = time.time()
+    start = time.time()
 
     while (
-        time.time() - started
-        < timeout
+        time.time() - start < timeout
     ):
 
         if stop_event.is_set():
-            return False
-
-        if (
-            ffmpeg is not None
-            and ffmpeg.poll() is not None
-        ):
-
             return False
 
         if playlist.exists():
@@ -1626,47 +1302,35 @@ def wait_hls(timeout=60):
                 )
             )
 
-            if segments:
+            if len(segments) >= 1:
 
-                try:
+                log(
+                    "[HLS] Playlist pronta."
+                )
 
-                    text = (
-                        playlist
-                        .read_text(
-                            errors="ignore"
-                        )
-                    )
-
-                    if (
-                        "#EXTM3U" in text
-                        and "#EXTINF" in text
-                    ):
-
-                        log(
-                            "[HLS] Playlist pronta."
-                        )
-
-                        return True
-
-                except Exception:
-                    pass
+                return True
 
         time.sleep(1)
+
+    log(
+        "[HLS] ERRO: playlist não foi criada."
+    )
 
     return False
 
 
 # ============================================================
-# CLOUDFLARE QUICK TUNNEL
+# TÚNEL LOCALHOST.RUN
 # ============================================================
 
-def extract_cloudflare_url(text):
+def get_tunnel_url(text):
 
     patterns = [
 
-        r"https://[a-zA-Z0-9-]+\.trycloudflare\.com",
+        r"https://[a-zA-Z0-9.-]+\.lhr\.life",
 
-        r"https://[a-zA-Z0-9.-]+\.trycloudflare\.com"
+        r"https://[a-zA-Z0-9.-]+\.localhost\.run",
+
     ]
 
     for pattern in patterns:
@@ -1688,146 +1352,114 @@ def start_tunnel():
     global tunnel_url
 
     line()
-    log("[TUNNEL] Iniciando Cloudflare Quick Tunnel...")
+    log("[6] Iniciando túnel localhost.run...")
 
-    if not command_exists(
-        CLOUDFLARED
-    ):
-
-        log(
-            "[TUNNEL] cloudflared não encontrado."
-        )
-
-        return None
-
-    # Se existir túnel anterior, encerra.
+    # Se existir túnel anterior, encerra primeiro.
     if tunnel is not None:
 
         stop_process(
             tunnel,
-            "Cloudflare Tunnel antigo"
+            "localhost.run"
         )
 
-        tunnel = None
+    tunnel_url = None
 
     command = [
 
-        CLOUDFLARED,
+        "ssh",
 
-        "tunnel",
+        "-o",
+        "StrictHostKeyChecking=no",
 
-        "--no-autoupdate",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
 
-        "--url",
-        f"http://127.0.0.1:{PORT}"
+        "-o",
+        "ServerAliveInterval=15",
+
+        "-o",
+        "ServerAliveCountMax=3",
+
+        "-o",
+        "ConnectTimeout=15",
+
+        "-o",
+        "ExitOnForwardFailure=yes",
+
+        "-R",
+        "80:localhost:8080",
+
+        "nokey@localhost.run"
     ]
 
-    try:
+    tunnel = subprocess.Popen(
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1
+    )
 
-        tunnel = subprocess.Popen(
-
-            command,
-
-            stdin=subprocess.DEVNULL,
-
-            stdout=subprocess.PIPE,
-
-            stderr=subprocess.STDOUT,
-
-            text=True,
-
-            bufsize=1
-        )
-
-    except Exception as e:
-
-        log(
-            "[TUNNEL] Falha iniciando cloudflared: "
-            + str(e)
-        )
-
-        return None
-
-    started = time.time()
+    start = time.time()
 
     while (
-        time.time() - started
-        < 45
+        time.time() - start < 45
     ):
 
         if stop_event.is_set():
             return None
 
         if tunnel.poll() is not None:
-
-            log(
-                "[TUNNEL] cloudflared encerrou."
-            )
-
-            return None
+            break
 
         try:
 
-            line_text = (
-                tunnel.stdout.readline()
-            )
+            text = tunnel.stdout.readline()
 
         except Exception:
+            text = ""
 
-            line_text = ""
-
-        if not line_text:
-
+        if not text:
             time.sleep(0.2)
-
             continue
 
-        line_text = line_text.strip()
+        text = text.strip()
 
-        if line_text:
+        if text:
 
             log(
-                "[CLOUDFLARE] "
-                + line_text
+                "[TUNEL] "
+                + text
             )
 
-        found = extract_cloudflare_url(
-            line_text
-        )
+        found = get_tunnel_url(text)
 
         if found:
 
-            with state_lock:
-
-                tunnel_url = found
+            tunnel_url = found
 
             line()
-            log("TÚNEL CLOUDFLARE ATIVO")
+            log("LINK DA TRANSMISSÃO")
             line()
 
             log(
-                "LINK DA TRANSMISSÃO:"
+                "LINK PRINCIPAL: "
+                + tunnel_url
             )
 
             log(
-                found
-            )
-
-            log(
-                "LINK HLS:"
-            )
-
-            log(
-                found
+                "LINK HLS: "
+                + tunnel_url
                 + "/live.m3u8"
             )
 
             line()
 
-            return found
+            return tunnel_url
 
     log(
-        "[TUNNEL] URL não encontrada."
+        "[TUNEL] Não foi possível obter o link."
     )
 
     return None
@@ -1841,8 +1473,6 @@ def monitor_tunnel():
 
     global tunnel_url
 
-    failure_count = 0
-
     while not stop_event.is_set():
 
         time.sleep(10)
@@ -1850,74 +1480,59 @@ def monitor_tunnel():
         if stop_event.is_set():
             break
 
-        if tunnel is not None:
+        if tunnel is None:
+            continue
 
-            if tunnel.poll() is None:
+        if tunnel.poll() is not None:
 
-                failure_count = 0
-
-                continue
-
-        failure_count += 1
-
-        line()
-
-        log(
-            "[TUNNEL] Cloudflare desconectado."
-        )
-
-        log(
-            "[TUNNEL] A transmissão local continua."
-        )
-
-        log(
-            "[TUNNEL] Tentativa de reconexão "
-            + str(failure_count)
-        )
-
-        # Não para FFmpeg.
-        # Não para Chromium.
-        # Não para HTTP.
-
-        if stop_event.is_set():
-            break
-
-        time.sleep(
-            min(
-                5 * failure_count,
-                30
-            )
-        )
-
-        if stop_event.is_set():
-            break
-
-        try:
-
-            new_url = start_tunnel()
-
-            if new_url:
-
-                failure_count = 0
-
-                line()
-
-                log(
-                    "NOVO LINK DA TRANSMISSÃO:"
-                )
-
-                log(
-                    new_url
-                )
-
-                line()
-
-        except Exception as e:
+            line()
 
             log(
-                "[TUNNEL] Erro na reconexão: "
-                + str(e)
+                "[TUNEL] Túnel desconectado."
             )
+
+            log(
+                "[TUNEL] Tentando reconectar..."
+            )
+
+            time.sleep(3)
+
+            if stop_event.is_set():
+                break
+
+            try:
+
+                new_url = start_tunnel()
+
+                if new_url:
+
+                    line()
+                    log(
+                        "NOVO LINK DA TRANSMISSÃO"
+                    )
+                    line()
+
+                    log(new_url)
+
+                    log(
+                        new_url
+                        + "/live.m3u8"
+                    )
+
+                    line()
+
+                else:
+
+                    log(
+                        "[TUNEL] Reconexão falhou."
+                    )
+
+            except Exception as e:
+
+                log(
+                    "[TUNEL] Erro ao reconectar: "
+                    + str(e)
+                )
 
 
 # ============================================================
@@ -1941,56 +1556,11 @@ def monitor_ffmpeg():
                 "[ERRO] FFmpeg encerrou."
             )
 
-            log(
-                "[ERRO] A transmissão não pode continuar."
-            )
+            line()
 
             stop_event.set()
 
             break
-
-
-# ============================================================
-# MONITOR CHROMIUM
-# ============================================================
-
-def monitor_chromium():
-
-    global chromium
-
-    while not stop_event.is_set():
-
-        time.sleep(10)
-
-        if chromium is None:
-            continue
-
-        if chromium.poll() is not None:
-
-            line()
-
-            log(
-                "[AVISO] Chromium encerrou."
-            )
-
-            log(
-                "[AVISO] Tentando reiniciar Chromium..."
-            )
-
-            try:
-
-                start_chromium()
-
-                time.sleep(3)
-
-                fullscreen()
-
-            except Exception as e:
-
-                log(
-                    "[CHROMIUM] Falha ao reiniciar: "
-                    + str(e)
-                )
 
 
 # ============================================================
@@ -2001,73 +1571,71 @@ def main():
 
     line()
     log("WEBTV STREAM")
-    log("MODO: X11 + CHROMIUM + FFMPEG + HLS")
-    log("TÚNEL: CLOUDFLARE QUICK TUNNEL")
     line()
 
     try:
 
-        # ----------------------------------------------------
-        # 1
-        # ----------------------------------------------------
+        # ====================================================
+        # 1 - LIMPEZA
+        # ====================================================
 
         clean_stream()
 
-        # ----------------------------------------------------
-        # 2
-        # ----------------------------------------------------
+        # ====================================================
+        # 2 - DEPENDÊNCIAS
+        # ====================================================
 
         check_dependencies()
 
-        # ----------------------------------------------------
-        # 3
-        # ----------------------------------------------------
+        # ====================================================
+        # 3 - XVFB
+        # ====================================================
 
         start_xvfb()
 
-        # ----------------------------------------------------
-        # 4
-        # ----------------------------------------------------
+        # ====================================================
+        # 4 - PULSEAUDIO
+        # ====================================================
 
         start_pulseaudio()
 
-        # ----------------------------------------------------
-        # 5
-        # ----------------------------------------------------
+        # ====================================================
+        # 5 - HTTP
+        # ====================================================
 
         start_http()
 
-        # ----------------------------------------------------
-        # 6
-        # ----------------------------------------------------
+        # ====================================================
+        # 6 - CHROMIUM
+        # ====================================================
 
         start_chromium()
 
         time.sleep(5)
 
-        # ----------------------------------------------------
-        # 7
-        # ----------------------------------------------------
+        # ====================================================
+        # 7 - TESTE X11
+        # ====================================================
 
         test_x11()
 
-        # ----------------------------------------------------
-        # 8
-        # ----------------------------------------------------
+        # ====================================================
+        # 8 - TELA CHEIA
+        # ====================================================
 
         fullscreen()
 
         time.sleep(3)
 
-        # ----------------------------------------------------
-        # 9
-        # ----------------------------------------------------
+        # ====================================================
+        # 9 - FFMPEG
+        # ====================================================
 
         start_ffmpeg()
 
-        # ----------------------------------------------------
-        # 10
-        # ----------------------------------------------------
+        # ====================================================
+        # 10 - HLS
+        # ====================================================
 
         if not wait_hls():
 
@@ -2075,17 +1643,15 @@ def main():
                 "A playlist HLS não foi criada."
             )
 
-        # ----------------------------------------------------
-        # 11
-        # TÚNEL SÓ DEPOIS DA TRANSMISSÃO ESTAR PRONTA
-        # ----------------------------------------------------
+        # ====================================================
+        # 11 - TÚNEL
+        # ====================================================
 
         start_tunnel()
 
-        # ----------------------------------------------------
-        # 12
+        # ====================================================
         # TRANSMISSÃO ATIVA
-        # ----------------------------------------------------
+        # ====================================================
 
         line()
         log("TRANSMISSÃO ATIVA")
@@ -2109,18 +1675,14 @@ def main():
 
         if tunnel_url:
 
-            line()
-
             log(
-                "LINK PÚBLICO:"
+                "LINK EXTERNO:"
             )
 
-            log(
-                tunnel_url
-            )
+            log(tunnel_url)
 
             log(
-                "HLS PÚBLICO:"
+                "HLS EXTERNO:"
             )
 
             log(
@@ -2130,21 +1692,15 @@ def main():
 
         else:
 
-            line()
-
             log(
-                "[AVISO] Cloudflare ainda não forneceu o link."
-            )
-
-            log(
-                "A transmissão local continua funcionando."
+                "[AVISO] Túnel não foi obtido."
             )
 
         line()
 
-        # ----------------------------------------------------
+        # ====================================================
         # MONITORES
-        # ----------------------------------------------------
+        # ====================================================
 
         threading.Thread(
             target=monitor_tunnel,
@@ -2156,16 +1712,33 @@ def main():
             daemon=True
         ).start()
 
-        threading.Thread(
-            target=monitor_chromium,
-            daemon=True
-        ).start()
-
-        # ----------------------------------------------------
+        # ====================================================
         # LOOP PRINCIPAL
-        # ----------------------------------------------------
+        # ====================================================
 
         while not stop_event.is_set():
+
+            if chromium:
+
+                if chromium.poll() is not None:
+
+                    log(
+                        "[ERRO] Chromium encerrou."
+                    )
+
+                    stop_event.set()
+                    break
+
+            if ffmpeg:
+
+                if ffmpeg.poll() is not None:
+
+                    log(
+                        "[ERRO] FFmpeg encerrou."
+                    )
+
+                    stop_event.set()
+                    break
 
             time.sleep(5)
 
@@ -2178,9 +1751,18 @@ def main():
     except Exception as e:
 
         line()
-        log("[ERRO FATAL]")
-        log(str(e))
+
+        log(
+            "[ERRO FATAL]"
+        )
+
+        log(
+            str(e)
+        )
+
         line()
+
+        raise
 
     finally:
 
