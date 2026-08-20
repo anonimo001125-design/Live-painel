@@ -16,11 +16,9 @@ jobs:
       - name: Baixar código
         uses: actions/checkout@v4
 
-
       - name: Instalar sistema
         shell: bash
         run: |
-
           set -e
 
           echo "=========================================="
@@ -37,102 +35,65 @@ jobs:
             xdotool \
             chromium \
             curl \
-            wget \
             ca-certificates
-
-          echo "=========================================="
-          echo "SISTEMA INSTALADO"
-          echo "=========================================="
-
-
-      - name: Instalar Cloudflare Tunnel
-        shell: bash
-        run: |
-
-          set -e
 
           echo "=========================================="
           echo "INSTALANDO CLOUDFLARED"
           echo "=========================================="
 
-          ARCH="$(dpkg --print-architecture)"
-
-          case "$ARCH" in
-
-            amd64)
-              CLOUDFLARED_ARCH="amd64"
-              ;;
-
-            arm64)
-              CLOUDFLARED_ARCH="arm64"
-              ;;
-
-            *)
-              echo "Arquitetura não suportada: $ARCH"
-              exit 1
-              ;;
-
-          esac
-
-          wget -q \
-            -O /tmp/cloudflared.deb \
-            "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CLOUDFLARED_ARCH}.deb"
+          curl -L \
+            --fail \
+            --retry 5 \
+            --retry-delay 3 \
+            -o /tmp/cloudflared.deb \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
 
           sudo dpkg -i /tmp/cloudflared.deb
 
+          echo "=========================================="
+          echo "VERIFICANDO INSTALAÇÃO"
+          echo "=========================================="
+
+          ffmpeg -version | head -n 1
+          chromium --version
+          pulseaudio --version
+          Xvfb -version 2>&1 | head -n 1 || true
           cloudflared --version
 
           echo "=========================================="
-          echo "CLOUDFLARED INSTALADO"
+          echo "SISTEMA PRONTO"
           echo "=========================================="
 
-
-      - name: Verificar sistema
+      - name: Verificar arquivos
         shell: bash
         run: |
-
           set -e
 
-          echo "=========================================="
-          echo "VERIFICANDO SISTEMA"
-          echo "=========================================="
+          echo "Diretório atual:"
+          pwd
 
-          echo "FFmpeg:"
-          ffmpeg -version | head -n 1
+          echo ""
+          echo "Arquivos:"
+          ls -la
 
-          echo "Chromium:"
-          chromium --version
+          echo ""
+          echo "Verificando app.py:"
 
-          echo "PulseAudio:"
-          pulseaudio --version
+          test -f app.py
 
-          echo "Xvfb:"
-          Xvfb -version 2>&1 | head -n 1 || true
+          head -n 10 app.py
 
-          echo "Cloudflared:"
-          cloudflared --version
-
-          echo "Python:"
-          python3 --version
-
-          echo "=========================================="
-          echo "SISTEMA OK"
-          echo "=========================================="
-
+          echo ""
+          echo "app.py encontrado."
 
       - name: Iniciar transmissão
         shell: bash
         env:
-
           DISPLAY: ":99"
-
           PULSE_SINK: "webtv"
-
           PYTHONUNBUFFERED: "1"
-
         run: |
-
-          set -e
+          set +e
 
           echo "=========================================="
           echo "INICIANDO WEBTV"
@@ -140,15 +101,19 @@ jobs:
 
           python3 -u app.py
 
+          CODE=$?
+
+          echo "=========================================="
+          echo "WEBTV FINALIZADA"
+          echo "Código: $CODE"
+          echo "=========================================="
+
+          exit $CODE
 
       - name: Salvar diagnósticos
         if: always()
         uses: actions/upload-artifact@v4
-
         with:
-
           name: webtv-debug
-
           path: stream/
-
           if-no-files-found: ignore
