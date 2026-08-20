@@ -3,6 +3,13 @@ name: Stream
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: webtv-stream
+  cancel-in-progress: true
+
 jobs:
 
   run-stream:
@@ -17,7 +24,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Instalar sistema
+        shell: bash
         run: |
+
+          set -euxo pipefail
+
+          echo "=========================================="
+          echo "INSTALANDO SISTEMA"
+          echo "=========================================="
 
           sudo apt-get update
 
@@ -28,30 +42,83 @@ jobs:
             xvfb \
             xdotool \
             chromium \
-            openssh-client
+            imagemagick \
+            curl \
+            ca-certificates
+
+      - name: Instalar cloudflared
+        shell: bash
+        run: |
+
+          set -euxo pipefail
+
+          echo "=========================================="
+          echo "INSTALANDO CLOUDFLARED"
+          echo "=========================================="
+
+          curl \
+            --fail \
+            --show-error \
+            --location \
+            --retry 5 \
+            --retry-delay 2 \
+            --output cloudflared.deb \
+            "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb"
+
+          sudo dpkg -i cloudflared.deb
+
+          cloudflared --version
 
       - name: Verificar sistema
+        shell: bash
         run: |
+
+          set -euxo pipefail
 
           echo "=========================================="
           echo "VERIFICANDO SISTEMA"
           echo "=========================================="
 
+          echo "FFmpeg:"
           ffmpeg -version | head -n 1
+
+          echo "Chromium:"
           chromium --version
+
+          echo "PulseAudio:"
           pulseaudio --version
-          pactl --version
-          Xvfb -version 2>&1 | head -n 1
-          ssh -V
+
+          echo "Xvfb:"
+          Xvfb -version || true
+
+          echo "Cloudflared:"
+          cloudflared --version
+
+          echo "Python:"
+          python3 --version
+
+      - name: Preparar ambiente
+        shell: bash
+        run: |
+
+          set -euxo pipefail
+
+          export DISPLAY=:99
+
+          mkdir -p stream
+
+          rm -f stream/live.m3u8
+          rm -f stream/segment_*.ts
 
       - name: Iniciar transmissão
+        shell: bash
         env:
-
           DISPLAY: ":99"
-
           PULSE_SINK: "webtv"
-
+          PYTHONUNBUFFERED: "1"
         run: |
+
+          set +e
 
           echo "=========================================="
           echo "INICIANDO WEBTV"
@@ -59,15 +126,25 @@ jobs:
 
           python3 app.py
 
+          CODE=$?
+
+          echo "=========================================="
+          echo "WEBTV FINALIZADA"
+          echo "Código: $CODE"
+          echo "=========================================="
+
+          exit $CODE
+
       - name: Salvar diagnósticos
         if: always()
-
         uses: actions/upload-artifact@v4
 
         with:
 
           name: webtv-debug
 
-          path: stream/
+          path: |
+            stream/
+            /tmp/*.log
 
           if-no-files-found: ignore
