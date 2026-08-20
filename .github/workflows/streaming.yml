@@ -4,154 +4,70 @@ on:
   workflow_dispatch:
 
 jobs:
+
   run-stream:
+
     runs-on: ubuntu-24.04
 
-    # O GitHub Actions não garante 24h.
-    # Este limite permite aproximadamente 5h50.
     timeout-minutes: 350
 
     steps:
 
-      # ======================================================
-      # 1. BAIXAR O CÓDIGO
-      # ======================================================
-
       - name: Baixar código
         uses: actions/checkout@v4
 
-      # ======================================================
-      # 2. INSTALAR DEPENDÊNCIAS
-      # ======================================================
-
       - name: Instalar sistema
-        shell: bash
-        env:
-          DEBIAN_FRONTEND: noninteractive
         run: |
-          set -euxo pipefail
 
-          echo "=========================================="
-          echo "ATUALIZANDO APT"
-          echo "=========================================="
+          sudo apt-get update
 
-          sudo apt-get update -y
-
-          echo "=========================================="
-          echo "INSTALANDO DEPENDÊNCIAS"
-          echo "=========================================="
-
-          sudo apt-get install -y --no-install-recommends \
+          sudo apt-get install -y \
             ffmpeg \
             pulseaudio \
             pulseaudio-utils \
             xvfb \
             xdotool \
             chromium \
-            openssh-client \
-            curl \
-            ca-certificates \
-            imagemagick
-
-          echo "=========================================="
-          echo "INSTALAÇÃO CONCLUÍDA"
-          echo "=========================================="
-
-      # ======================================================
-      # 3. VERIFICAR PROGRAMAS
-      # ======================================================
+            openssh-client
 
       - name: Verificar sistema
-        shell: bash
         run: |
-          set -eux
 
           echo "=========================================="
           echo "VERIFICANDO SISTEMA"
           echo "=========================================="
 
-          echo "FFmpeg:"
           ffmpeg -version | head -n 1
-
-          echo "Chromium:"
           chromium --version
-
-          echo "PulseAudio:"
           pulseaudio --version
-
-          echo "Xvfb:"
-          Xvfb -version || true
-
-          echo "SSH:"
+          pactl --version
+          Xvfb -version 2>&1 | head -n 1
           ssh -V
 
-          echo "Python:"
-          python3 --version
-
-          echo "=========================================="
-          echo "SISTEMA OK"
-          echo "=========================================="
-
-      # ======================================================
-      # 4. VERIFICAR ARQUIVOS
-      # ======================================================
-
-      - name: Verificar arquivos da transmissão
-        shell: bash
-        run: |
-          set -eux
-
-          echo "=========================================="
-          echo "ARQUIVOS DO PROJETO"
-          echo "=========================================="
-
-          pwd
-          ls -lah
-
-          if [ ! -f "app.py" ]; then
-            echo "ERRO: app.py não encontrado."
-            exit 1
-          fi
-
-          echo "app.py encontrado."
-
-      # ======================================================
-      # 5. INICIAR WEBTV
-      # ======================================================
-
       - name: Iniciar transmissão
-        shell: bash
         env:
+
           DISPLAY: ":99"
+
           PULSE_SINK: "webtv"
-          PYTHONUNBUFFERED: "1"
+
         run: |
-          set +e
 
           echo "=========================================="
           echo "INICIANDO WEBTV"
           echo "=========================================="
 
-          python3 -u app.py
-
-          EXIT_CODE=$?
-
-          echo "=========================================="
-          echo "WEBTV FINALIZADA"
-          echo "Código: $EXIT_CODE"
-          echo "=========================================="
-
-          exit $EXIT_CODE
-
-      # ======================================================
-      # 6. SALVAR LOGS
-      # ======================================================
+          python3 app.py
 
       - name: Salvar diagnósticos
         if: always()
+
         uses: actions/upload-artifact@v4
+
         with:
+
           name: webtv-debug
-          path: |
-            stream/
+
+          path: stream/
+
           if-no-files-found: ignore
