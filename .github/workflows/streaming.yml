@@ -4,7 +4,6 @@ on:
   workflow_dispatch:
 
 jobs:
-
   run-stream:
 
     runs-on: ubuntu-24.04
@@ -13,24 +12,11 @@ jobs:
 
     steps:
 
-      # ======================================================
-      # CÓDIGO
-      # ======================================================
-
       - name: Baixar código
         uses: actions/checkout@v4
 
-
-      # ======================================================
-      # SISTEMA
-      # ======================================================
-
       - name: Instalar sistema
-        timeout-minutes: 10
         run: |
-
-          set -eux
-
           sudo apt-get update
 
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -42,128 +28,35 @@ jobs:
             chromium \
             openssh-client \
             curl \
-            wget \
-            ca-certificates \
             imagemagick
 
-
-      # ======================================================
-      # CLOUDFLARED
-      # ======================================================
-
-      - name: Instalar Cloudflare Tunnel
-        timeout-minutes: 5
-        run: |
-
-          set -eux
-
-          ARCH="$(dpkg --print-architecture)"
-
-          case "$ARCH" in
-            amd64)
-              CLOUDFLARED_ARCH="amd64"
-              ;;
-            arm64)
-              CLOUDFLARED_ARCH="arm64"
-              ;;
-            *)
-              echo "Arquitetura não suportada: $ARCH"
-              exit 1
-              ;;
-          esac
-
-          wget -q \
-            "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CLOUDFLARED_ARCH}" \
-            -O cloudflared
-
-          sudo install \
-            -m 0755 \
-            cloudflared \
-            /usr/local/bin/cloudflared
-
-          cloudflared --version
-
-
-      # ======================================================
-      # PYTHON
-      # ======================================================
-
-      - name: Preparar Python
-        timeout-minutes: 5
-        run: |
-
-          set -eux
-
-          python3 --version
-
-          python3 -m pip install \
-            --upgrade \
-            --break-system-packages \
-            pip
-
-          pip install \
-            --no-cache-dir \
-            --break-system-packages \
-            pyppeteer
-
-
-      # ======================================================
-      # VERIFICAÇÃO
-      # ======================================================
-
       - name: Verificar sistema
-        timeout-minutes: 5
         run: |
-
-          set -eux
+          set -e
 
           echo "=========================================="
-          echo "VERIFICAÇÃO DO SISTEMA"
+          echo "VERIFICANDO SISTEMA"
           echo "=========================================="
 
-          echo "--- FFmpeg ---"
           ffmpeg -version | head -n 1
-
-          echo "--- Chromium ---"
           chromium --version
-
-          echo "--- PulseAudio ---"
           pulseaudio --version
-
-          echo "--- Python ---"
-          python3 --version
-
-          echo "--- Xvfb ---"
-          Xvfb -version 2>&1 | head -n 1 || true
-
-          echo "--- Cloudflared ---"
-          cloudflared --version
-
-          echo "--- SSH ---"
-          ssh -V 2>&1 || true
+          pactl --version
+          Xvfb -version 2>&1 | head -n 1
+          ssh -V 2>&1 | head -n 1
+          curl --version | head -n 1
+          xdotool --version
 
           echo "=========================================="
-          echo "TODAS AS DEPENDÊNCIAS OK"
+          echo "SISTEMA OK"
           echo "=========================================="
-
-
-      # ======================================================
-      # TRANSMISSÃO
-      # ======================================================
 
       - name: Iniciar transmissão
         env:
-
-          PYPPETEER_NO_CHROMIUM_DOWNLOAD: "1"
-
           DISPLAY: ":99"
-
           PULSE_SINK: "webtv"
-
           PYTHONUNBUFFERED: "1"
-
         run: |
-
           set +e
 
           echo "=========================================="
@@ -172,30 +65,19 @@ jobs:
 
           python3 app.py
 
-          EXIT_CODE=$?
+          STATUS=$?
 
           echo "=========================================="
           echo "WEBTV FINALIZADA"
-          echo "Código: $EXIT_CODE"
+          echo "Código: $STATUS"
           echo "=========================================="
 
-          exit $EXIT_CODE
-
-
-      # ======================================================
-      # DIAGNÓSTICOS
-      # ======================================================
+          exit $STATUS
 
       - name: Salvar diagnósticos
         if: always()
         uses: actions/upload-artifact@v4
-
         with:
-
           name: webtv-debug
-
-          path: |
-
-            stream/
-
+          path: stream/
           if-no-files-found: ignore
