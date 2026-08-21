@@ -8,6 +8,10 @@ import signal
 import shutil
 import threading
 import subprocess
+import json
+import urllib.request
+import urllib.error
+
 from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
@@ -34,6 +38,21 @@ PAGE_URL = (
 
 CLOUDFLARED = "cloudflared"
 
+# ============================================================
+# CLOUDFLARE WORKER
+# ============================================================
+
+WORKER_UPDATE_URL = os.environ.get(
+    "WORKER_UPDATE_URL",
+    ""
+).strip()
+
+WORKER_SECRET = os.environ.get(
+    "WORKER_SECRET",
+    ""
+).strip()
+
+
 stop_event = threading.Event()
 
 xvfb = None
@@ -46,6 +65,7 @@ http_server = None
 tunnel_url = None
 
 state_lock = threading.Lock()
+tunnel_lock = threading.Lock()
 
 
 # ============================================================
@@ -98,9 +118,7 @@ def stop_process(process, name):
 
 def cleanup():
     global http_server
-
-    if stop_event.is_set():
-        pass
+    global tunnel
 
     stop_event.set()
 
@@ -170,6 +188,118 @@ def run_command(command, timeout=30, env=None):
         )
 
         return None
+
+
+# ============================================================
+# CLOUDFLARE WORKER
+# ============================================================
+
+def update_worker_url(url):
+
+    if not WORKER_UPDATE_URL:
+
+        log(
+            "[WORKER] WORKER_UPDATE_URL não configurado."
+        )
+
+        return False
+
+    if not WORKER_SECRET:
+
+        log(
+            "[WORKER] WORKER_SECRET não configurado."
+        )
+
+        return False
+
+    if not re.fullmatch(
+        r"https://[a-zA-Z0-9-]+\.trycloudflare\.com",
+        url
+    ):
+
+        log(
+            "[WORKER] URL rejeitada por formato inválido."
+        )
+
+        return False
+
+    payload = json.dumps(
+        {
+            "url": url,
+            "secret": WORKER_SECRET
+        }
+    ).encode("utf-8")
+
+    request = urllib.request.Request(
+        WORKER_UPDATE_URL,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Cache-Control": "no-cache"
+        },
+        method="POST"
+    )
+
+    try:
+
+        with urllib.request.urlopen(
+            request,
+            timeout=20
+        ) as response:
+
+            body = response.read().decode(
+                "utf-8",
+                errors="ignore"
+            )
+
+            if response.status == 200:
+
+                log(
+                    "[WORKER] Endereço atualizado com sucesso."
+                )
+
+                return True
+
+            log(
+                "[WORKER] Resposta HTTP inesperada: "
+                + str(response.status)
+            )
+
+            if body:
+                log(
+                    "[WORKER] "
+                    + body
+                )
+
+    except urllib.error.HTTPError as e:
+
+        try:
+            body = e.read().decode(
+                "utf-8",
+                errors="ignore"
+            )
+        except Exception:
+            body = ""
+
+        log(
+            "[WORKER] Erro HTTP "
+            + str(e.code)
+        )
+
+        if body:
+            log(
+                "[WORKER] "
+                + body
+            )
+
+    except Exception as e:
+
+        log(
+            "[WORKER] Erro atualizando endereço: "
+            + str(e)
+        )
+
+    return False
 
 
 # ============================================================
@@ -320,7 +450,7 @@ def start_pulseaudio():
 
     time.sleep(1)
 
-    result = run_command(
+    run_command(
         [
             "pulseaudio",
             "--start",
@@ -359,13 +489,9 @@ def start_pulseaudio():
 
         if result is not None and result.returncode != 0:
 
-            log(
-                "[AUDIO] Erro ao criar sink:"
-            )
+            log("[AUDIO] Erro ao criar sink:")
 
-            log(
-                result.stderr.strip()
-            )
+            log(result.stderr.strip())
 
     time.sleep(2)
 
@@ -498,27 +624,69 @@ const video = document.getElementById("player");
 const status = document.getElementById("status");
 
 let hls = null;
+let retryTimer = null;
 
 function statusText(text) {
     status.textContent = text;
 }
 
+function clearRetry() {
+
+    if (retryTimer !== null) {
+
+        clearTimeout(retryTimer);
+
+        retryTimer = null;
+    }
+}
+
+function scheduleRestart(delay) {
+
+    clearRetry();
+
+    retryTimer = setTimeout(
+        function() {
+
+            retryTimer = null;
+
+            startPlayer();
+
+        },
+        delay
+    );
+}
+
 function startPlayer() {
 
-    const source = "/live.m3u8?v=" + Date.now();
+    const source =
+        "/live.m3u8?v=" + Date.now();
 
-    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+    statusText("Conectando...");
+
+    if (video.canPlayType(
+        "application/vnd.apple.mpegurl"
+    )) {
 
         video.src = source;
 
         video.play().catch(() => {});
 
-        statusText("Transmissão ativa");
+        statusText(
+            "Transmissão ativa"
+        );
 
         return;
     }
 
-    const script = document.createElement("script");
+    if (window.Hls) {
+
+        createHls(source);
+
+        return;
+    }
+
+    const script =
+        document.createElement("script");
 
     script.src =
         "https://cdn.jsdelivr.net/npm/hls.js@latest";
@@ -527,11 +695,41 @@ function startPlayer() {
 
         if (!window.Hls) {
 
-            statusText("HLS.js indisponível");
+            statusText(
+                "HLS.js indisponível"
+            );
 
-            setTimeout(startPlayer, 3000);
+            scheduleRestart(3000);
 
             return;
+        }
+
+        createHls(source);
+    };
+
+    script.onerror = function() {
+
+        statusText(
+            "Falha ao carregar HLS.js"
+        );
+
+        scheduleRestart(3000);
+    };
+
+    document.head.appendChild(script);
+}
+
+function createHls(source) {
+
+    try {
+
+        if (hls) {
+
+            try {
+                hls.destroy();
+            } catch (e) {}
+
+            hls = null;
         }
 
         hls = new Hls({
@@ -582,14 +780,22 @@ function startPlayer() {
                     Hls.ErrorTypes.NETWORK_ERROR
                 ) {
 
-                    hls.startLoad();
+                    try {
+                        hls.startLoad();
+                    } catch (e) {}
+
+                    scheduleRestart(2000);
 
                 } else if (
                     data.type ===
                     Hls.ErrorTypes.MEDIA_ERROR
                 ) {
 
-                    hls.recoverMediaError();
+                    try {
+                        hls.recoverMediaError();
+                    } catch (e) {}
+
+                    scheduleRestart(2000);
 
                 } else {
 
@@ -599,28 +805,19 @@ function startPlayer() {
 
                     hls = null;
 
-                    setTimeout(
-                        startPlayer,
-                        2000
-                    );
+                    scheduleRestart(2000);
                 }
             }
         );
-    };
 
-    script.onerror = function() {
+    } catch (e) {
 
         statusText(
-            "Falha ao carregar HLS.js"
+            "Reconectando..."
         );
 
-        setTimeout(
-            startPlayer,
-            3000
-        );
-    };
-
-    document.head.appendChild(script);
+        scheduleRestart(2000);
+    }
 }
 
 startPlayer();
@@ -629,7 +826,7 @@ setInterval(
     function() {
 
         fetch(
-            "/health",
+            "/health?v=" + Date.now(),
             {
                 cache: "no-store"
             }
@@ -641,18 +838,27 @@ setInterval(
 
                     if (
                         status.textContent ===
-                        "Reconectando..."
+                        "Reconectando..." ||
+                        status.textContent ===
+                        "Conectando..."
                     ) {
 
                         statusText(
                             "Transmissão ativa"
                         );
                     }
+
+                } else {
+
+                    statusText(
+                        "Transmissão reconectando..."
+                    );
                 }
             }
         )
         .catch(
             function() {
+
                 statusText(
                     "Servidor reconectando..."
                 );
@@ -832,7 +1038,10 @@ class StreamHandler(BaseHTTPRequestHandler):
                     and chromium.poll() is None
                 ),
                 "hls": playlist.exists(),
-                "tunnel": tunnel_url or ""
+                "tunnel": tunnel_url or "",
+                "worker": bool(
+                    WORKER_UPDATE_URL
+                )
             }
 
             text = (
@@ -847,6 +1056,9 @@ class StreamHandler(BaseHTTPRequestHandler):
                 + "\n"
                 + "Tunnel: "
                 + status["tunnel"]
+                + "\n"
+                + "Worker: "
+                + str(status["worker"])
                 + "\n"
             )
 
@@ -894,7 +1106,7 @@ class StreamHandler(BaseHTTPRequestHandler):
 
                 self.send_bytes(
                     data,
-                    "application/vnd.apple.mpegurl"
+                    "application/vnd.apple.apple.mpegurl"
                 )
 
             except Exception as e:
@@ -1011,7 +1223,6 @@ def start_http():
 
     thread.start()
 
-    # Teste local.
     for attempt in range(1, 11):
 
         result = run_command(
@@ -1309,7 +1520,6 @@ def test_x11():
     line()
     log("[DIAGNÓSTICO] Testando X11...")
 
-    # O ImageMagick pode não existir.
     if not command_exists("import"):
 
         log(
@@ -1414,10 +1624,6 @@ def start_ffmpeg():
 
         "-y",
 
-        # ----------------------------------------------------
-        # VÍDEO X11
-        # ----------------------------------------------------
-
         "-thread_queue_size",
         "4096",
 
@@ -1436,10 +1642,6 @@ def start_ffmpeg():
         "-i",
         f"{DISPLAY}.0",
 
-        # ----------------------------------------------------
-        # ÁUDIO
-        # ----------------------------------------------------
-
         "-thread_queue_size",
         "4096",
 
@@ -1448,10 +1650,6 @@ def start_ffmpeg():
 
         "-i",
         "webtv.monitor",
-
-        # ----------------------------------------------------
-        # VÍDEO
-        # ----------------------------------------------------
 
         "-map",
         "0:v:0",
@@ -1489,10 +1687,6 @@ def start_ffmpeg():
         "-bufsize",
         "3000k",
 
-        # ----------------------------------------------------
-        # ÁUDIO
-        # ----------------------------------------------------
-
         "-map",
         "1:a:0",
 
@@ -1507,10 +1701,6 @@ def start_ffmpeg():
 
         "-ac",
         "2",
-
-        # ----------------------------------------------------
-        # HLS
-        # ----------------------------------------------------
 
         "-f",
         "hls",
@@ -1662,22 +1852,13 @@ def wait_hls(timeout=60):
 
 def extract_cloudflare_url(text):
 
-    patterns = [
-
+    match = re.search(
         r"https://[a-zA-Z0-9-]+\.trycloudflare\.com",
+        text
+    )
 
-        r"https://[a-zA-Z0-9.-]+\.trycloudflare\.com"
-    ]
-
-    for pattern in patterns:
-
-        match = re.search(
-            pattern,
-            text
-        )
-
-        if match:
-            return match.group(0)
+    if match:
+        return match.group(0)
 
     return None
 
@@ -1687,150 +1868,176 @@ def start_tunnel():
     global tunnel
     global tunnel_url
 
-    line()
-    log("[TUNNEL] Iniciando Cloudflare Quick Tunnel...")
+    with tunnel_lock:
 
-    if not command_exists(
-        CLOUDFLARED
-    ):
-
+        line()
         log(
-            "[TUNNEL] cloudflared não encontrado."
+            "[TUNNEL] Iniciando Cloudflare Quick Tunnel..."
         )
 
-        return None
-
-    # Se existir túnel anterior, encerra.
-    if tunnel is not None:
-
-        stop_process(
-            tunnel,
-            "Cloudflare Tunnel antigo"
-        )
-
-        tunnel = None
-
-    command = [
-
-        CLOUDFLARED,
-
-        "tunnel",
-
-        "--no-autoupdate",
-
-        "--url",
-        f"http://127.0.0.1:{PORT}"
-    ]
-
-    try:
-
-        tunnel = subprocess.Popen(
-
-            command,
-
-            stdin=subprocess.DEVNULL,
-
-            stdout=subprocess.PIPE,
-
-            stderr=subprocess.STDOUT,
-
-            text=True,
-
-            bufsize=1
-        )
-
-    except Exception as e:
-
-        log(
-            "[TUNNEL] Falha iniciando cloudflared: "
-            + str(e)
-        )
-
-        return None
-
-    started = time.time()
-
-    while (
-        time.time() - started
-        < 45
-    ):
-
-        if stop_event.is_set():
-            return None
-
-        if tunnel.poll() is not None:
+        if not command_exists(
+            CLOUDFLARED
+        ):
 
             log(
-                "[TUNNEL] cloudflared encerrou."
+                "[TUNNEL] cloudflared não encontrado."
             )
 
             return None
+
+        if tunnel is not None:
+
+            stop_process(
+                tunnel,
+                "Cloudflare Tunnel antigo"
+            )
+
+            tunnel = None
+
+        command = [
+
+            CLOUDFLARED,
+
+            "tunnel",
+
+            "--no-autoupdate",
+
+            "--url",
+            f"http://127.0.0.1:{PORT}"
+        ]
 
         try:
 
-            line_text = (
-                tunnel.stdout.readline()
+            tunnel = subprocess.Popen(
+
+                command,
+
+                stdin=subprocess.DEVNULL,
+
+                stdout=subprocess.PIPE,
+
+                stderr=subprocess.STDOUT,
+
+                text=True,
+
+                bufsize=1
             )
 
-        except Exception:
-
-            line_text = ""
-
-        if not line_text:
-
-            time.sleep(0.2)
-
-            continue
-
-        line_text = line_text.strip()
-
-        if line_text:
+        except Exception as e:
 
             log(
-                "[CLOUDFLARE] "
-                + line_text
+                "[TUNNEL] Falha iniciando cloudflared: "
+                + str(e)
             )
 
-        found = extract_cloudflare_url(
-            line_text
+            return None
+
+        started = time.time()
+
+        while (
+            time.time() - started
+            < 45
+        ):
+
+            if stop_event.is_set():
+                return None
+
+            if tunnel.poll() is not None:
+
+                log(
+                    "[TUNNEL] cloudflared encerrou."
+                )
+
+                return None
+
+            try:
+
+                line_text = (
+                    tunnel.stdout.readline()
+                )
+
+            except Exception:
+
+                line_text = ""
+
+            if not line_text:
+
+                time.sleep(0.2)
+
+                continue
+
+            line_text = line_text.strip()
+
+            if line_text:
+
+                log(
+                    "[CLOUDFLARE] "
+                    + line_text
+                )
+
+            found = extract_cloudflare_url(
+                line_text
+            )
+
+            if found:
+
+                with state_lock:
+
+                    tunnel_url = found
+
+                log(
+                    "[TUNNEL] Novo endereço:"
+                )
+
+                log(found)
+
+                # Atualiza imediatamente o Worker.
+                update_worker_url(found)
+
+                line()
+
+                log(
+                    "ENDEREÇO FIXO DA WEBTV:"
+                )
+
+                if WORKER_UPDATE_URL:
+
+                    worker_public_url = (
+                        WORKER_UPDATE_URL
+                        .rsplit(
+                            "/update",
+                            1
+                        )[0]
+                    )
+
+                    log(
+                        worker_public_url
+                    )
+
+                log(
+                    "TÚNEL INTERNO:"
+                )
+
+                log(found)
+
+                log(
+                    "HLS INTERNO:"
+                )
+
+                log(
+                    found
+                    + "/live.m3u8"
+                )
+
+                line()
+
+                return found
+
+        log(
+            "[TUNNEL] URL não encontrada."
         )
 
-        if found:
-
-            with state_lock:
-
-                tunnel_url = found
-
-            line()
-            log("TÚNEL CLOUDFLARE ATIVO")
-            line()
-
-            log(
-                "LINK DA TRANSMISSÃO:"
-            )
-
-            log(
-                found
-            )
-
-            log(
-                "LINK HLS:"
-            )
-
-            log(
-                found
-                + "/live.m3u8"
-            )
-
-            line()
-
-            return found
-
-    log(
-        "[TUNNEL] URL não encontrada."
-    )
-
-    return None
+        return None
 
 
 # ============================================================
@@ -1875,13 +2082,6 @@ def monitor_tunnel():
             + str(failure_count)
         )
 
-        # Não para FFmpeg.
-        # Não para Chromium.
-        # Não para HTTP.
-
-        if stop_event.is_set():
-            break
-
         time.sleep(
             min(
                 5 * failure_count,
@@ -1900,17 +2100,13 @@ def monitor_tunnel():
 
                 failure_count = 0
 
-                line()
-
                 log(
-                    "NOVO LINK DA TRANSMISSÃO:"
+                    "[TUNNEL] Novo túnel conectado."
                 )
 
                 log(
-                    new_url
+                    "[WORKER] O endereço fixo continua sendo o Worker."
                 )
-
-                line()
 
         except Exception as e:
 
@@ -2003,7 +2199,37 @@ def main():
     log("WEBTV STREAM")
     log("MODO: X11 + CHROMIUM + FFMPEG + HLS")
     log("TÚNEL: CLOUDFLARE QUICK TUNNEL")
+    log("ENDEREÇO PÚBLICO: CLOUDFLARE WORKER")
     line()
+
+    if WORKER_UPDATE_URL:
+
+        log(
+            "[WORKER] Atualização automática habilitada."
+        )
+
+        log(
+            "[WORKER] "
+            + WORKER_UPDATE_URL
+        )
+
+    else:
+
+        log(
+            "[WORKER] AVISO: WORKER_UPDATE_URL não configurado."
+        )
+
+    if WORKER_SECRET:
+
+        log(
+            "[WORKER] Secret configurado."
+        )
+
+    else:
+
+        log(
+            "[WORKER] AVISO: WORKER_SECRET não configurado."
+        )
 
     try:
 
@@ -2077,7 +2303,7 @@ def main():
 
         # ----------------------------------------------------
         # 11
-        # TÚNEL SÓ DEPOIS DA TRANSMISSÃO ESTAR PRONTA
+        # CLOUDFLARE
         # ----------------------------------------------------
 
         start_tunnel()
@@ -2109,22 +2335,49 @@ def main():
 
         if tunnel_url:
 
+            log(
+                "TÚNEL ATUAL:"
+            )
+
+            log(
+                tunnel_url
+            )
+
+            log(
+                "HLS DO TÚNEL:"
+            )
+
+            log(
+                tunnel_url
+                + "/live.m3u8"
+            )
+
+        if WORKER_UPDATE_URL:
+
+            worker_public_url = (
+                WORKER_UPDATE_URL
+                .rsplit(
+                    "/update",
+                    1
+                )[0]
+            )
+
             line()
 
             log(
-                "LINK PÚBLICO:"
+                "LINK FIXO DA WEBTV:"
             )
 
             log(
-                tunnel_url
+                worker_public_url
             )
 
             log(
-                "HLS PÚBLICO:"
+                "HLS FIXO:"
             )
 
             log(
-                tunnel_url
+                worker_public_url
                 + "/live.m3u8"
             )
 
@@ -2133,11 +2386,7 @@ def main():
             line()
 
             log(
-                "[AVISO] Cloudflare ainda não forneceu o link."
-            )
-
-            log(
-                "A transmissão local continua funcionando."
+                "[AVISO] Worker não configurado."
             )
 
         line()
