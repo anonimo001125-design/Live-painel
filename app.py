@@ -39,6 +39,43 @@ PAGE_URL = (
 
 CLOUDFLARED = "cloudflared"
 
+
+# ============================================================
+# PERFIL PERSISTENTE DO CHROMIUM
+# ============================================================
+#
+# IMPORTANTE:
+#
+# A versão anterior apagava o perfil do Chromium toda vez que
+# o programa iniciava.
+#
+# Isso apagava cookies, sessões e outros dados do navegador.
+#
+# Agora o perfil NÃO é apagado.
+#
+# Se CHROMIUM_PROFILE estiver definido, ele será usado.
+#
+# Caso contrário:
+#
+#     ./chromium-profile
+#
+# será utilizado.
+#
+# O Chromium guarda cookies e dados do perfil no User Data Dir.
+# ============================================================
+
+DEFAULT_CHROMIUM_PROFILE = (
+    Path.cwd() / "chromium-profile"
+)
+
+CHROMIUM_PROFILE = Path(
+    os.environ.get(
+        "CHROMIUM_PROFILE",
+        str(DEFAULT_CHROMIUM_PROFILE)
+    )
+).expanduser().resolve()
+
+
 # ============================================================
 # WORKER
 # ============================================================
@@ -92,12 +129,17 @@ def line():
 # ============================================================
 
 def stop_process(process, name):
+
     if process is None:
         return
 
     try:
+
         if process.poll() is None:
-            log(f"[STOP] Parando {name}...")
+
+            log(
+                f"[STOP] Parando {name}..."
+            )
 
             try:
                 process.terminate()
@@ -106,7 +148,9 @@ def stop_process(process, name):
 
             try:
                 process.wait(timeout=5)
+
             except subprocess.TimeoutExpired:
+
                 try:
                     process.kill()
                 except Exception:
@@ -118,27 +162,48 @@ def stop_process(process, name):
                     pass
 
     except Exception as e:
-        log(f"[STOP] Erro em {name}: {e}")
+
+        log(
+            f"[STOP] Erro em {name}: {e}"
+        )
 
 
 def cleanup():
-    global http_server
 
-    if stop_event.is_set():
-        pass
+    global http_server
 
     stop_event.set()
 
     line()
     log("ENCERRANDO WEBTV")
 
-    stop_process(ffmpeg, "FFmpeg")
-    stop_process(chromium, "Chromium")
-    stop_process(tunnel, "Cloudflare Tunnel")
-    stop_process(pulse, "PulseAudio")
-    stop_process(xvfb, "Xvfb")
+    stop_process(
+        ffmpeg,
+        "FFmpeg"
+    )
+
+    stop_process(
+        chromium,
+        "Chromium"
+    )
+
+    stop_process(
+        tunnel,
+        "Cloudflare Tunnel"
+    )
+
+    stop_process(
+        pulse,
+        "PulseAudio"
+    )
+
+    stop_process(
+        xvfb,
+        "Xvfb"
+    )
 
     if http_server is not None:
+
         try:
             http_server.shutdown()
         except Exception:
@@ -153,12 +218,20 @@ def cleanup():
 
 
 def signal_handler(signum, frame):
+
     cleanup()
     sys.exit(0)
 
 
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(
+    signal.SIGINT,
+    signal_handler
+)
+
+signal.signal(
+    signal.SIGTERM,
+    signal_handler
+)
 
 
 # ============================================================
@@ -166,11 +239,18 @@ signal.signal(signal.SIGTERM, signal_handler)
 # ============================================================
 
 def command_exists(command):
+
     return shutil.which(command) is not None
 
 
-def run_command(command, timeout=30, env=None):
+def run_command(
+    command,
+    timeout=30,
+    env=None
+):
+
     try:
+
         return subprocess.run(
             command,
             stdout=subprocess.PIPE,
@@ -181,6 +261,7 @@ def run_command(command, timeout=30, env=None):
         )
 
     except Exception as e:
+
         log(
             "[CMD] Erro executando "
             + " ".join(command)
@@ -196,24 +277,21 @@ def run_command(command, timeout=30, env=None):
 # ============================================================
 
 def update_worker_url(url):
-    """
-    Atualiza o endereço temporário do Quick Tunnel no Worker.
-
-    POST /update
-
-    Authorization: Bearer SECRET
-
-    {
-        "url": "https://xxxxx.trycloudflare.com"
-    }
-    """
 
     if not WORKER_UPDATE_URL:
-        log("[WORKER] WORKER_UPDATE_URL não configurado.")
+
+        log(
+            "[WORKER] WORKER_UPDATE_URL não configurado."
+        )
+
         return False
 
     if not WORKER_SECRET:
-        log("[WORKER] WORKER_SECRET não configurado.")
+
+        log(
+            "[WORKER] WORKER_SECRET não configurado."
+        )
+
         return False
 
     url = url.strip().rstrip("/")
@@ -222,8 +300,16 @@ def update_worker_url(url):
         r"https://[a-zA-Z0-9-]+\.trycloudflare\.com",
         url
     ):
-        log("[WORKER] URL do túnel rejeitada por formato inválido.")
-        log("[WORKER] URL recebida: " + url)
+
+        log(
+            "[WORKER] URL do túnel rejeitada por formato inválido."
+        )
+
+        log(
+            "[WORKER] URL recebida: "
+            + url
+        )
+
         return False
 
     endpoint = WORKER_UPDATE_URL
@@ -251,11 +337,22 @@ def update_worker_url(url):
         method="POST"
     )
 
-    log("[WORKER] Atualizando túnel...")
-    log("[WORKER] Endpoint: " + endpoint)
-    log("[WORKER] Novo túnel: " + url)
+    log(
+        "[WORKER] Atualizando túnel..."
+    )
+
+    log(
+        "[WORKER] Endpoint: "
+        + endpoint
+    )
+
+    log(
+        "[WORKER] Novo túnel: "
+        + url
+    )
 
     try:
+
         with urllib.request.urlopen(
             request,
             timeout=20
@@ -272,13 +369,21 @@ def update_worker_url(url):
             )
 
             if body:
-                log("[WORKER] " + body)
+                log(
+                    "[WORKER] "
+                    + body
+                )
 
             if 200 <= response.status < 300:
-                log("[WORKER] Túnel registrado com sucesso.")
+
+                log(
+                    "[WORKER] Túnel registrado com sucesso."
+                )
 
                 with state_lock:
+
                     global tunnel_url
+
                     tunnel_url = url
 
                 return True
@@ -286,11 +391,14 @@ def update_worker_url(url):
     except urllib.error.HTTPError as e:
 
         try:
+
             body = e.read().decode(
                 "utf-8",
                 errors="ignore"
             )
+
         except Exception:
+
             body = ""
 
         log(
@@ -299,25 +407,26 @@ def update_worker_url(url):
         )
 
         if body:
-            log("[WORKER] " + body)
+            log(
+                "[WORKER] "
+                + body
+            )
 
         if e.code == 401:
+
             log(
                 "[WORKER] SECRET incorreto ou Authorization "
                 "não aceito."
             )
 
         elif e.code == 403:
+
             log(
                 "[WORKER] Requisição bloqueada com HTTP 403."
             )
 
-            log(
-                "[WORKER] Verifique as regras de segurança "
-                "do Worker/WAF."
-            )
-
         elif e.code == 404:
+
             log(
                 "[WORKER] Endpoint /update não encontrado."
             )
@@ -346,8 +455,15 @@ def test_worker():
     if base.endswith("/update"):
         base = base[:-7].rstrip("/")
 
-    log("[WORKER] Testando endereço público...")
-    log("[WORKER] URL: " + base + "/")
+    log(
+        "[WORKER] Testando endereço público..."
+    )
+
+    log(
+        "[WORKER] URL: "
+        + base
+        + "/"
+    )
 
     result = run_command(
         [
@@ -364,13 +480,19 @@ def test_worker():
     if result is None:
         return
 
-    log("[WORKER] Teste HTTP:")
+    log(
+        "[WORKER] Teste HTTP:"
+    )
 
     if result.stdout.strip():
-        log(result.stdout.strip())
+        log(
+            result.stdout.strip()
+        )
 
     if result.stderr.strip():
-        log(result.stderr.strip())
+        log(
+            result.stderr.strip()
+        )
 
 
 # ============================================================
@@ -380,7 +502,10 @@ def test_worker():
 def check_dependencies():
 
     line()
-    log("VERIFICANDO DEPENDÊNCIAS")
+
+    log(
+        "VERIFICANDO DEPENDÊNCIAS"
+    )
 
     required = [
         "Xvfb",
@@ -408,6 +533,7 @@ def check_dependencies():
     ]:
 
         if command_exists(browser):
+
             browser_found = True
             break
 
@@ -415,12 +541,15 @@ def check_dependencies():
         missing.append("chromium")
 
     if missing:
+
         raise RuntimeError(
             "Programas ausentes: "
             + ", ".join(missing)
         )
 
-    log("Todas as dependências estão instaladas.")
+    log(
+        "Todas as dependências estão instaladas."
+    )
 
 
 # ============================================================
@@ -430,7 +559,10 @@ def check_dependencies():
 def clean_stream():
 
     line()
-    log("[1] Limpando stream antigo...")
+
+    log(
+        "[1] Limpando stream antigo..."
+    )
 
     STREAM_DIR.mkdir(
         parents=True,
@@ -442,9 +574,11 @@ def clean_stream():
         try:
 
             if item.is_file():
+
                 item.unlink()
 
             elif item.is_dir():
+
                 shutil.rmtree(item)
 
         except Exception as e:
@@ -466,9 +600,13 @@ def start_xvfb():
     global xvfb
 
     line()
-    log("[2] INICIANDO XVFB")
+
+    log(
+        "[2] INICIANDO XVFB"
+    )
 
     env = os.environ.copy()
+
     env["DISPLAY"] = DISPLAY
 
     xvfb = subprocess.Popen(
@@ -496,7 +634,9 @@ def start_xvfb():
             "Xvfb encerrou durante a inicialização."
         )
 
-    log("Xvfb funcionando.")
+    log(
+        "Xvfb funcionando."
+    )
 
 
 # ============================================================
@@ -508,9 +648,13 @@ def start_pulseaudio():
     global pulse
 
     line()
-    log("[3] INICIANDO PULSEAUDIO")
+
+    log(
+        "[3] INICIANDO PULSEAUDIO"
+    )
 
     env = os.environ.copy()
+
     env["DISPLAY"] = DISPLAY
 
     run_command(
@@ -547,7 +691,9 @@ def start_pulseaudio():
 
     if sinks is None or "webtv" not in sinks.stdout:
 
-        log("[AUDIO] Criando sink webtv...")
+        log(
+            "[AUDIO] Criando sink webtv..."
+        )
 
         result = run_command(
             [
@@ -560,10 +706,18 @@ def start_pulseaudio():
             timeout=15
         )
 
-        if result is not None and result.returncode != 0:
+        if (
+            result is not None
+            and result.returncode != 0
+        ):
 
-            log("[AUDIO] Erro ao criar sink:")
-            log(result.stderr.strip())
+            log(
+                "[AUDIO] Erro ao criar sink:"
+            )
+
+            log(
+                result.stderr.strip()
+            )
 
     time.sleep(2)
 
@@ -579,13 +733,21 @@ def start_pulseaudio():
 
     if sources is not None:
 
-        log("[AUDIO] Fontes:")
+        log(
+            "[AUDIO] Fontes:"
+        )
 
         if sources.stdout.strip():
-            log(sources.stdout.strip())
+
+            log(
+                sources.stdout.strip()
+            )
 
         else:
-            log("[AUDIO] Nenhuma fonte encontrada.")
+
+            log(
+                "[AUDIO] Nenhuma fonte encontrada."
+            )
 
     monitor = run_command(
         [
@@ -596,14 +758,22 @@ def start_pulseaudio():
         timeout=10
     )
 
-    if monitor is None or monitor.returncode != 0:
+    if (
+        monitor is None
+        or monitor.returncode != 0
+    ):
 
         raise RuntimeError(
             "webtv.monitor não foi criado."
         )
 
-    log("[AUDIO] webtv.monitor OK.")
-    log("Áudio pronto.")
+    log(
+        "[AUDIO] webtv.monitor OK."
+    )
+
+    log(
+        "Áudio pronto."
+    )
 
 
 # ============================================================
@@ -1062,22 +1232,11 @@ class StreamHandler(BaseHTTPRequestHandler):
 
     def do_HEAD(self):
 
-        """
-        IMPORTANTE:
+        path = self.path.split(
+            "?",
+            1
+        )[0]
 
-        Cloudflare/monitores fazem HEAD /.
-        O código anterior não implementava HEAD,
-        podendo provocar erro no Worker.
-
-        Aqui HEAD responde corretamente sem enviar
-        o corpo da resposta.
-        """
-
-        path = self.path.split("?", 1)[0]
-
-        # ----------------------------------------------------
-        # ROOT
-        # ----------------------------------------------------
 
         if path == "/":
 
@@ -1094,10 +1253,6 @@ class StreamHandler(BaseHTTPRequestHandler):
 
             return
 
-
-        # ----------------------------------------------------
-        # HEALTH
-        # ----------------------------------------------------
 
         if path == "/health":
 
@@ -1129,10 +1284,6 @@ class StreamHandler(BaseHTTPRequestHandler):
             return
 
 
-        # ----------------------------------------------------
-        # STATUS
-        # ----------------------------------------------------
-
         if path == "/status":
 
             data = build_status().encode()
@@ -1146,10 +1297,6 @@ class StreamHandler(BaseHTTPRequestHandler):
 
             return
 
-
-        # ----------------------------------------------------
-        # PLAYLIST
-        # ----------------------------------------------------
 
         if path == "/live.m3u8":
 
@@ -1191,10 +1338,6 @@ class StreamHandler(BaseHTTPRequestHandler):
 
             return
 
-
-        # ----------------------------------------------------
-        # SEGMENTOS
-        # ----------------------------------------------------
 
         if (
             path.startswith("/segment_")
@@ -1259,10 +1402,6 @@ class StreamHandler(BaseHTTPRequestHandler):
             return
 
 
-        # ----------------------------------------------------
-        # FAVICON
-        # ----------------------------------------------------
-
         if path == "/favicon.ico":
 
             self.send_bytes(
@@ -1291,10 +1430,6 @@ class StreamHandler(BaseHTTPRequestHandler):
         )[0]
 
 
-        # ----------------------------------------------------
-        # HEALTH
-        # ----------------------------------------------------
-
         if path == "/health":
 
             playlist = (
@@ -1320,10 +1455,6 @@ class StreamHandler(BaseHTTPRequestHandler):
             return
 
 
-        # ----------------------------------------------------
-        # STATUS
-        # ----------------------------------------------------
-
         if path == "/status":
 
             self.send_bytes(
@@ -1334,10 +1465,6 @@ class StreamHandler(BaseHTTPRequestHandler):
             return
 
 
-        # ----------------------------------------------------
-        # PÁGINA
-        # ----------------------------------------------------
-
         if path == "/":
 
             self.send_bytes(
@@ -1347,10 +1474,6 @@ class StreamHandler(BaseHTTPRequestHandler):
 
             return
 
-
-        # ----------------------------------------------------
-        # HLS
-        # ----------------------------------------------------
 
         if path == "/live.m3u8":
 
@@ -1393,10 +1516,6 @@ class StreamHandler(BaseHTTPRequestHandler):
 
             return
 
-
-        # ----------------------------------------------------
-        # SEGMENTOS
-        # ----------------------------------------------------
 
         if (
             path.startswith("/segment_")
@@ -1454,10 +1573,6 @@ class StreamHandler(BaseHTTPRequestHandler):
 
             return
 
-
-        # ----------------------------------------------------
-        # FAVICON
-        # ----------------------------------------------------
 
         if path == "/favicon.ico":
 
@@ -1524,6 +1639,12 @@ def build_status():
             bool(WORKER_UPDATE_URL)
         )
         + "\n"
+
+        + "ChromiumProfile: "
+        + str(
+            CHROMIUM_PROFILE
+        )
+        + "\n"
     )
 
 
@@ -1536,7 +1657,10 @@ def start_http():
     global http_server
 
     line()
-    log("[4] INICIANDO SERVIDOR HTTP")
+
+    log(
+        "[4] INICIANDO SERVIDOR HTTP"
+    )
 
     http_server = ThreadingHTTPServer(
         (HOST, PORT),
@@ -1606,6 +1730,41 @@ def find_browser():
     )
 
 
+def prepare_chromium_profile():
+
+    line()
+
+    log(
+        "[CHROMIUM] Preparando perfil persistente..."
+    )
+
+    try:
+
+        CHROMIUM_PROFILE.mkdir(
+            parents=True,
+            exist_ok=True
+        )
+
+    except Exception as e:
+
+        raise RuntimeError(
+            "Não foi possível criar o perfil do Chromium: "
+            + str(e)
+        )
+
+    log(
+        "[CHROMIUM] Perfil:"
+    )
+
+    log(
+        str(CHROMIUM_PROFILE)
+    )
+
+    log(
+        "[CHROMIUM] O perfil NÃO será apagado."
+    )
+
+
 def start_chromium():
 
     global chromium
@@ -1613,7 +1772,10 @@ def start_chromium():
     with chromium_lock:
 
         line()
-        log("[5] INICIANDO CHROMIUM")
+
+        log(
+            "[5] INICIANDO CHROMIUM"
+        )
 
         browser = find_browser()
 
@@ -1622,21 +1784,7 @@ def start_chromium():
         env["DISPLAY"] = DISPLAY
         env["PULSE_SINK"] = "webtv"
 
-        profile = Path(
-            "/tmp/webtv-chromium-profile"
-        )
-
-        if profile.exists():
-
-            try:
-                shutil.rmtree(profile)
-            except Exception:
-                pass
-
-        profile.mkdir(
-            parents=True,
-            exist_ok=True
-        )
+        prepare_chromium_profile()
 
         command = [
 
@@ -1660,6 +1808,8 @@ def start_chromium():
             "--disable-infobars",
             "--disable-popup-blocking",
 
+            "--disable-session-crashed-bubble",
+
             "--autoplay-policy=no-user-gesture-required",
 
             "--start-fullscreen",
@@ -1668,13 +1818,31 @@ def start_chromium():
             "--window-size=1280,720",
             "--window-position=0,0",
 
-            "--user-data-dir=" + str(profile),
+            # =================================================
+            # PERFIL PERSISTENTE
+            # =================================================
+
+            "--user-data-dir="
+            + str(CHROMIUM_PROFILE),
 
             PAGE_URL
         ]
 
-        log("Abrindo página:")
-        log(PAGE_URL)
+        log(
+            "[CHROMIUM] Perfil persistente:"
+        )
+
+        log(
+            str(CHROMIUM_PROFILE)
+        )
+
+        log(
+            "Abrindo página:"
+        )
+
+        log(
+            PAGE_URL
+        )
 
         chromium = subprocess.Popen(
             command,
@@ -1694,8 +1862,13 @@ def start_chromium():
                 "Chromium encerrou durante a inicialização."
             )
 
-        log("Chromium iniciado.")
-        log("Página carregada.")
+        log(
+            "Chromium iniciado."
+        )
+
+        log(
+            "Página carregada."
+        )
 
         process_ref = chromium
 
@@ -1708,6 +1881,7 @@ def start_chromium():
                     text = text.strip()
 
                     if text:
+
                         log(
                             "[CHROMIUM] "
                             + text
@@ -1729,7 +1903,10 @@ def start_chromium():
 def fullscreen():
 
     line()
-    log("[TELA] Ativando tela cheia...")
+
+    log(
+        "[TELA] Ativando tela cheia..."
+    )
 
     if not command_exists("xdotool"):
 
@@ -1810,7 +1987,10 @@ def fullscreen():
 def test_x11():
 
     line()
-    log("[DIAGNÓSTICO] Testando X11...")
+
+    log(
+        "[DIAGNÓSTICO] Testando X11..."
+    )
 
     if not command_exists("import"):
 
@@ -1868,8 +2048,11 @@ def remove_old_hls():
     )
 
     try:
+
         playlist.unlink()
+
     except FileNotFoundError:
+
         pass
 
     for file in STREAM_DIR.glob(
@@ -1877,8 +2060,11 @@ def remove_old_hls():
     ):
 
         try:
+
             file.unlink()
+
         except Exception:
+
             pass
 
 
@@ -1889,7 +2075,10 @@ def start_ffmpeg():
     with ffmpeg_lock:
 
         line()
-        log("[6] INICIANDO FFMPEG")
+
+        log(
+            "[6] INICIANDO FFMPEG"
+        )
 
         remove_old_hls()
 
@@ -2009,7 +2198,9 @@ def start_ffmpeg():
             str(playlist)
         ]
 
-        log("FFmpeg configurado.")
+        log(
+            "FFmpeg configurado."
+        )
 
         env = os.environ.copy()
 
@@ -2036,6 +2227,7 @@ def start_ffmpeg():
                     text = text.strip()
 
                     if text:
+
                         log(
                             "[FFMPEG] "
                             + text
@@ -2057,13 +2249,18 @@ def start_ffmpeg():
                 "FFmpeg encerrou durante a inicialização."
             )
 
-        log("FFmpeg funcionando.")
+        log(
+            "FFmpeg funcionando."
+        )
 
 
 def wait_hls(timeout=60):
 
     line()
-    log("[HLS] Aguardando playlist...")
+
+    log(
+        "[HLS] Aguardando playlist..."
+    )
 
     playlist = (
         STREAM_DIR /
@@ -2140,13 +2337,17 @@ def extract_cloudflare_url(text):
     return None
 
 
-def read_tunnel_output(process, output_queue):
+def read_tunnel_output(
+    process,
+    output_queue
+):
 
     try:
 
         for line_text in process.stdout:
 
             if line_text:
+
                 output_queue.put(
                     line_text.rstrip()
                 )
@@ -2367,6 +2568,7 @@ def monitor_tunnel():
         ):
 
             failure_count = 0
+
             continue
 
         failure_count += 1
@@ -2405,6 +2607,7 @@ def monitor_tunnel():
                 failure_count = 0
 
                 with state_lock:
+
                     tunnel_url = new_url
 
                 log(
@@ -2500,6 +2703,10 @@ def monitor_chromium():
         )
 
         log(
+            "[AVISO] Perfil persistente será mantido."
+        )
+
+        log(
             "[AVISO] Tentando reiniciar Chromium..."
         )
 
@@ -2573,18 +2780,31 @@ def main():
 
     line()
 
-    log("WEBTV STREAM")
+    log(
+        "WEBTV STREAM"
+    )
+
     log(
         "MODO: X11 + CHROMIUM + FFMPEG + HLS"
     )
+
     log(
         "TÚNEL: CLOUDFLARE QUICK TUNNEL"
     )
+
     log(
         "ENDEREÇO PÚBLICO: CLOUDFLARE WORKER"
     )
 
     line()
+
+    log(
+        "[CHROMIUM] Perfil persistente:"
+    )
+
+    log(
+        str(CHROMIUM_PROFILE)
+    )
 
     if WORKER_UPDATE_URL:
 
@@ -2812,4 +3032,5 @@ def main():
 # ============================================================
 
 if __name__ == "__main__":
+
     main()
