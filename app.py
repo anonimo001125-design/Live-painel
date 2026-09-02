@@ -786,10 +786,6 @@ class StreamHandler(BaseHTTPRequestHandler):
 
         path = self.path.split("?", 1)[0]
 
-        # ----------------------------------------------------
-        # HEALTH
-        # ----------------------------------------------------
-
         if path == "/health":
 
             playlist = STREAM_DIR / "live.m3u8"
@@ -813,10 +809,6 @@ class StreamHandler(BaseHTTPRequestHandler):
             )
 
             return
-
-        # ----------------------------------------------------
-        # STATUS
-        # ----------------------------------------------------
 
         if path == "/status":
 
@@ -857,10 +849,6 @@ class StreamHandler(BaseHTTPRequestHandler):
 
             return
 
-        # ----------------------------------------------------
-        # PÁGINA
-        # ----------------------------------------------------
-
         if path == "/":
 
             self.send_bytes(
@@ -870,10 +858,6 @@ class StreamHandler(BaseHTTPRequestHandler):
 
             return
 
-        # ----------------------------------------------------
-        # HLS
-        # ----------------------------------------------------
-
         if path == "/live.m3u8":
 
             playlist = STREAM_DIR / "live.m3u8"
@@ -882,7 +866,7 @@ class StreamHandler(BaseHTTPRequestHandler):
 
                 self.send_bytes(
                     b"#EXTM3U\n",
-                    "application/vnd.apple.mpegurl",
+                    "application/vnd.apple.apple.mpegurl",
                     503
                 )
 
@@ -905,10 +889,6 @@ class StreamHandler(BaseHTTPRequestHandler):
                 )
 
             return
-
-        # ----------------------------------------------------
-        # SEGMENTOS TS
-        # ----------------------------------------------------
 
         if path.startswith("/segment_") and path.endswith(".ts"):
 
@@ -969,10 +949,6 @@ class StreamHandler(BaseHTTPRequestHandler):
 
             return
 
-        # ----------------------------------------------------
-        # FAVICON
-        # ----------------------------------------------------
-
         if path == "/favicon.ico":
 
             self.send_bytes(
@@ -1011,7 +987,6 @@ def start_http():
 
     thread.start()
 
-    # Teste local.
     for attempt in range(1, 11):
 
         result = run_command(
@@ -1133,6 +1108,10 @@ def start_chromium():
         "--disable-infobars",
 
         "--disable-popup-blocking",
+
+        "--no-first-run",
+
+        "--no-default-browser-check",
 
         "--autoplay-policy=no-user-gesture-required",
 
@@ -1309,7 +1288,6 @@ def test_x11():
     line()
     log("[DIAGNÓSTICO] Testando X11...")
 
-    # O ImageMagick pode não existir.
     if not command_exists("import"):
 
         log(
@@ -1414,10 +1392,6 @@ def start_ffmpeg():
 
         "-y",
 
-        # ----------------------------------------------------
-        # VÍDEO X11
-        # ----------------------------------------------------
-
         "-thread_queue_size",
         "4096",
 
@@ -1436,10 +1410,6 @@ def start_ffmpeg():
         "-i",
         f"{DISPLAY}.0",
 
-        # ----------------------------------------------------
-        # ÁUDIO
-        # ----------------------------------------------------
-
         "-thread_queue_size",
         "4096",
 
@@ -1448,10 +1418,6 @@ def start_ffmpeg():
 
         "-i",
         "webtv.monitor",
-
-        # ----------------------------------------------------
-        # VÍDEO
-        # ----------------------------------------------------
 
         "-map",
         "0:v:0",
@@ -1489,10 +1455,6 @@ def start_ffmpeg():
         "-bufsize",
         "3000k",
 
-        # ----------------------------------------------------
-        # ÁUDIO
-        # ----------------------------------------------------
-
         "-map",
         "1:a:0",
 
@@ -1507,10 +1469,6 @@ def start_ffmpeg():
 
         "-ac",
         "2",
-
-        # ----------------------------------------------------
-        # HLS
-        # ----------------------------------------------------
 
         "-f",
         "hls",
@@ -1700,7 +1658,6 @@ def start_tunnel():
 
         return None
 
-    # Se existir túnel anterior, encerra.
     if tunnel is not None:
 
         stop_process(
@@ -1875,10 +1832,6 @@ def monitor_tunnel():
             + str(failure_count)
         )
 
-        # Não para FFmpeg.
-        # Não para Chromium.
-        # Não para HTTP.
-
         if stop_event.is_set():
             break
 
@@ -2007,67 +1960,27 @@ def main():
 
     try:
 
-        # ----------------------------------------------------
-        # 1
-        # ----------------------------------------------------
-
         clean_stream()
-
-        # ----------------------------------------------------
-        # 2
-        # ----------------------------------------------------
 
         check_dependencies()
 
-        # ----------------------------------------------------
-        # 3
-        # ----------------------------------------------------
-
         start_xvfb()
-
-        # ----------------------------------------------------
-        # 4
-        # ----------------------------------------------------
 
         start_pulseaudio()
 
-        # ----------------------------------------------------
-        # 5
-        # ----------------------------------------------------
-
         start_http()
-
-        # ----------------------------------------------------
-        # 6
-        # ----------------------------------------------------
 
         start_chromium()
 
         time.sleep(5)
 
-        # ----------------------------------------------------
-        # 7
-        # ----------------------------------------------------
-
         test_x11()
-
-        # ----------------------------------------------------
-        # 8
-        # ----------------------------------------------------
 
         fullscreen()
 
         time.sleep(3)
 
-        # ----------------------------------------------------
-        # 9
-        # ----------------------------------------------------
-
         start_ffmpeg()
-
-        # ----------------------------------------------------
-        # 10
-        # ----------------------------------------------------
 
         if not wait_hls():
 
@@ -2075,17 +1988,7 @@ def main():
                 "A playlist HLS não foi criada."
             )
 
-        # ----------------------------------------------------
-        # 11
-        # TÚNEL SÓ DEPOIS DA TRANSMISSÃO ESTAR PRONTA
-        # ----------------------------------------------------
-
         start_tunnel()
-
-        # ----------------------------------------------------
-        # 12
-        # TRANSMISSÃO ATIVA
-        # ----------------------------------------------------
 
         line()
         log("TRANSMISSÃO ATIVA")
@@ -2142,10 +2045,6 @@ def main():
 
         line()
 
-        # ----------------------------------------------------
-        # MONITORES
-        # ----------------------------------------------------
-
         threading.Thread(
             target=monitor_tunnel,
             daemon=True
@@ -2160,10 +2059,6 @@ def main():
             target=monitor_chromium,
             daemon=True
         ).start()
-
-        # ----------------------------------------------------
-        # LOOP PRINCIPAL
-        # ----------------------------------------------------
 
         while not stop_event.is_set():
 
